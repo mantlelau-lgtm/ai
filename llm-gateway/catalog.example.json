@@ -1,0 +1,40 @@
+{
+  "keys": [
+    {
+      "name": "openai-main",
+      "value_env": "OPENAI_API_KEY"
+    }
+  ],
+  "providers": [
+    {
+      "name": "default-mock",
+      "type": "mock",
+      "enabled": true,
+      "is_default": false
+    },
+    {
+      "name": "openai-default",
+      "type": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_from": "openai-main",
+      "enabled": true,
+      "is_default": true
+    }
+  ],
+  "models": [
+    {
+      "name": "mock-chat",
+      "provider": "default-mock",
+      "upstream_model": "mock-chat",
+      "owned_by": "mock",
+      "enabled": true
+    },
+    {
+      "name": "gpt-4o-mini",
+      "provider": "openai-default",
+      "upstream_model": "gpt-4o-mini",
+      "owned_by": "openai",
+      "enabled": true
+    }
+  ]
+}

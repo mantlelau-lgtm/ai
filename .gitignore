@@ -1,0 +1,5 @@
+.DS_Store
+.tmp/
+docs/
+llm-gateway/.env.local
+llm-gateway/catalog.local.json
