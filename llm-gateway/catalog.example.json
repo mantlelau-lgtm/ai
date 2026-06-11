@@ -34,6 +34,8 @@
       "provider": "openai-default",
       "upstream_model": "gpt-4o-mini",
       "owned_by": "openai",
+      "prompt_cost_per_1k_tokens": 0,
+      "completion_cost_per_1k_tokens": 0,
       "enabled": true
     }
   ]

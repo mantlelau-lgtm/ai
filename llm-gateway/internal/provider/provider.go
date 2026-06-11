@@ -54,6 +54,13 @@ func (m *Manager) SetModelRoutes(items []gateway.ModelRoute) {
 	}
 }
 
+func (m *Manager) GetModelRoute(model string) (gateway.ModelRoute, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	route, ok := m.models[model]
+	return route, ok
+}
+
 func (m *Manager) ResolveProvider(ctx context.Context, model string) (gateway.ProviderConfig, Provider, string, error) {
 	providers, err := m.store.ListProviders(ctx)
 	if err != nil {

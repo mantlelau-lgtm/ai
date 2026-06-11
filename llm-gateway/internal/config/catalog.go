@@ -24,23 +24,25 @@ type CatalogKey struct {
 }
 
 type CatalogProvider struct {
-	Name       string            `json:"name"`
-	Type       string            `json:"type"`
-	BaseURL    string            `json:"base_url,omitempty"`
-	APIKey     string            `json:"api_key,omitempty"`
-	APIKeyFrom string            `json:"api_key_from,omitempty"`
-	ModelPrefixes []string       `json:"model_prefixes,omitempty"`
-	Enabled    bool              `json:"enabled"`
-	IsDefault  bool              `json:"is_default"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	Name          string            `json:"name"`
+	Type          string            `json:"type"`
+	BaseURL       string            `json:"base_url,omitempty"`
+	APIKey        string            `json:"api_key,omitempty"`
+	APIKeyFrom    string            `json:"api_key_from,omitempty"`
+	ModelPrefixes []string          `json:"model_prefixes,omitempty"`
+	Enabled       bool              `json:"enabled"`
+	IsDefault     bool              `json:"is_default"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
 }
 
 type CatalogModel struct {
-	Name          string `json:"name"`
-	Provider      string `json:"provider"`
-	UpstreamModel string `json:"upstream_model,omitempty"`
-	OwnedBy       string `json:"owned_by,omitempty"`
-	Enabled       bool   `json:"enabled"`
+	Name                      string  `json:"name"`
+	Provider                  string  `json:"provider"`
+	UpstreamModel             string  `json:"upstream_model,omitempty"`
+	OwnedBy                   string  `json:"owned_by,omitempty"`
+	PromptCostPer1KTokens     float64 `json:"prompt_cost_per_1k_tokens,omitempty"`
+	CompletionCostPer1KTokens float64 `json:"completion_cost_per_1k_tokens,omitempty"`
+	Enabled                   bool    `json:"enabled"`
 }
 
 func LoadCatalog(path string) (Catalog, error) {
@@ -93,14 +95,14 @@ func ApplyCatalog(ctx context.Context, st store.Store, path string) ([]gateway.M
 			apiKey = resolved
 		}
 		providers = append(providers, gateway.ProviderConfig{
-			Name:      item.Name,
-			Type:      strings.ToLower(strings.TrimSpace(item.Type)),
-			BaseURL:   strings.TrimSpace(item.BaseURL),
-			APIKey:    apiKey,
+			Name:          item.Name,
+			Type:          strings.ToLower(strings.TrimSpace(item.Type)),
+			BaseURL:       strings.TrimSpace(item.BaseURL),
+			APIKey:        apiKey,
 			ModelPrefixes: sanitizePrefixes(item.ModelPrefixes),
-			Enabled:   item.Enabled,
-			IsDefault: item.IsDefault,
-			Metadata:  item.Metadata,
+			Enabled:       item.Enabled,
+			IsDefault:     item.IsDefault,
+			Metadata:      item.Metadata,
 		})
 	}
 
@@ -137,11 +139,13 @@ func ApplyCatalog(ctx context.Context, st store.Store, path string) ([]gateway.M
 			ownedBy = item.Provider
 		}
 		models = append(models, gateway.ModelRoute{
-			Name:          item.Name,
-			Provider:      item.Provider,
-			UpstreamModel: upstreamModel,
-			OwnedBy:       ownedBy,
-			Enabled:       item.Enabled,
+			Name:                      item.Name,
+			Provider:                  item.Provider,
+			UpstreamModel:             upstreamModel,
+			OwnedBy:                   ownedBy,
+			PromptCostPer1KTokens:     item.PromptCostPer1KTokens,
+			CompletionCostPer1KTokens: item.CompletionCostPer1KTokens,
+			Enabled:                   item.Enabled,
 		})
 	}
 	return models, nil

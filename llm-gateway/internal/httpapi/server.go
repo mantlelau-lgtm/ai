@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -108,6 +109,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response, callErr := handler.Chat(ctx, providerCfg, downstreamReq)
+	finishedAt := time.Now()
+	cost := s.estimateCost(req.Model, response.Usage)
+	response.Usage = s.enrichUsage(response.Usage, cost, startedAt, finishedAt)
 	s.recordUsage(ctx, gateway.UsageRecord{
 		RequestID:        requestID,
 		Provider:         providerCfg.Name,
@@ -116,8 +120,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		PromptTokens:     response.Usage.PromptTokens,
 		CompletionTokens: response.Usage.CompletionTokens,
 		TotalTokens:      response.Usage.TotalTokens,
+		Cost:             cost,
 		Success:          callErr == nil,
-		LatencyMS:        time.Since(startedAt).Milliseconds(),
+		LatencyMS:        finishedAt.Sub(startedAt).Milliseconds(),
+		StartedAt:        startedAt.UTC(),
+		FinishedAt:       finishedAt.UTC(),
 		ErrorMessage:     errorMessage(callErr),
 	})
 	if callErr != nil {
@@ -147,6 +154,8 @@ func (s *Server) handleStreamingChat(w http.ResponseWriter, ctx context.Context,
 		flusher.Flush()
 		return nil
 	})
+	finishedAt := time.Now()
+	cost := s.estimateCost(requestedModel, usage)
 
 	s.recordUsage(ctx, gateway.UsageRecord{
 		RequestID:        requestID,
@@ -156,8 +165,11 @@ func (s *Server) handleStreamingChat(w http.ResponseWriter, ctx context.Context,
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
 		TotalTokens:      usage.TotalTokens,
+		Cost:             cost,
 		Success:          err == nil,
-		LatencyMS:        time.Since(startedAt).Milliseconds(),
+		LatencyMS:        finishedAt.Sub(startedAt).Milliseconds(),
+		StartedAt:        startedAt.UTC(),
+		FinishedAt:       finishedAt.UTC(),
 		ErrorMessage:     errorMessage(err),
 	})
 
@@ -195,6 +207,9 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	startedAt := time.Now()
 	requestID := requestIDFromTime(startedAt)
 	response, callErr := handler.Embeddings(ctx, providerCfg, downstreamReq)
+	finishedAt := time.Now()
+	cost := s.estimateCost(req.Model, response.Usage)
+	response.Usage = s.enrichUsage(response.Usage, cost, startedAt, finishedAt)
 	s.recordUsage(ctx, gateway.UsageRecord{
 		RequestID:        requestID,
 		Provider:         providerCfg.Name,
@@ -203,8 +218,11 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		PromptTokens:     response.Usage.PromptTokens,
 		CompletionTokens: response.Usage.CompletionTokens,
 		TotalTokens:      response.Usage.TotalTokens,
+		Cost:             cost,
 		Success:          callErr == nil,
-		LatencyMS:        time.Since(startedAt).Milliseconds(),
+		LatencyMS:        finishedAt.Sub(startedAt).Milliseconds(),
+		StartedAt:        startedAt.UTC(),
+		FinishedAt:       finishedAt.UTC(),
 		ErrorMessage:     errorMessage(callErr),
 	})
 	if callErr != nil {
@@ -364,6 +382,35 @@ func (s *Server) recordUsage(ctx context.Context, record gateway.UsageRecord) {
 	if err := s.store.RecordUsage(ctx, record); err != nil {
 		s.logger.Error("record usage failed", "request_id", record.RequestID, "error", err)
 	}
+}
+
+func (s *Server) estimateCost(model string, usage gateway.Usage) float64 {
+	route, ok := s.manager.GetModelRoute(model)
+	if !ok {
+		return 0
+	}
+	if route.PromptCostPer1KTokens == 0 && route.CompletionCostPer1KTokens == 0 {
+		return 0
+	}
+	prompt := float64(usage.PromptTokens) / 1000.0 * route.PromptCostPer1KTokens
+	completion := float64(usage.CompletionTokens) / 1000.0 * route.CompletionCostPer1KTokens
+	return roundFloat(prompt+completion, 9)
+}
+
+func (s *Server) enrichUsage(usage gateway.Usage, cost float64, startedAt, finishedAt time.Time) gateway.Usage {
+	usage.Cost = roundFloat(cost, 9)
+	usage.LatencyMS = finishedAt.Sub(startedAt).Milliseconds()
+	usage.StartedAt = startedAt.UTC()
+	usage.FinishedAt = finishedAt.UTC()
+	return usage
+}
+
+func roundFloat(value float64, precision int) float64 {
+	if precision < 0 {
+		return value
+	}
+	factor := math.Pow10(precision)
+	return math.Round(value*factor) / factor
 }
 
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {

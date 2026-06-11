@@ -89,9 +89,13 @@ type ModelInfo struct {
 }
 
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens     int       `json:"prompt_tokens"`
+	CompletionTokens int       `json:"completion_tokens"`
+	TotalTokens      int       `json:"total_tokens"`
+	Cost             float64   `json:"cost,omitempty"`
+	LatencyMS        int64     `json:"latency_ms,omitempty"`
+	StartedAt        time.Time `json:"started_at,omitempty"`
+	FinishedAt       time.Time `json:"finished_at,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -108,11 +112,13 @@ type ProviderConfig struct {
 }
 
 type ModelRoute struct {
-	Name          string `json:"name"`
-	Provider      string `json:"provider"`
-	UpstreamModel string `json:"upstream_model"`
-	OwnedBy       string `json:"owned_by,omitempty"`
-	Enabled       bool   `json:"enabled"`
+	Name                      string  `json:"name"`
+	Provider                  string  `json:"provider"`
+	UpstreamModel             string  `json:"upstream_model"`
+	OwnedBy                   string  `json:"owned_by,omitempty"`
+	PromptCostPer1KTokens     float64 `json:"prompt_cost_per_1k_tokens,omitempty"`
+	CompletionCostPer1KTokens float64 `json:"completion_cost_per_1k_tokens,omitempty"`
+	Enabled                   bool    `json:"enabled"`
 }
 
 type UsageRecord struct {
@@ -124,8 +130,11 @@ type UsageRecord struct {
 	PromptTokens     int       `json:"prompt_tokens"`
 	CompletionTokens int       `json:"completion_tokens"`
 	TotalTokens      int       `json:"total_tokens"`
+	Cost             float64   `json:"cost"`
 	Success          bool      `json:"success"`
 	LatencyMS        int64     `json:"latency_ms"`
+	StartedAt        time.Time `json:"started_at"`
+	FinishedAt       time.Time `json:"finished_at"`
 	ErrorMessage     string    `json:"error_message,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 }

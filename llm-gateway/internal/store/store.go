@@ -62,8 +62,11 @@ CREATE TABLE IF NOT EXISTS usage_records (
 	prompt_tokens INTEGER NOT NULL DEFAULT 0,
 	completion_tokens INTEGER NOT NULL DEFAULT 0,
 	total_tokens INTEGER NOT NULL DEFAULT 0,
+	cost DOUBLE PRECISION NOT NULL DEFAULT 0,
 	success BOOLEAN NOT NULL,
 	latency_ms BIGINT NOT NULL DEFAULT 0,
+	started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	finished_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	error_message TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )`
@@ -72,7 +75,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS providers_single_default_idx
 ON providers ((is_default))
 WHERE is_default = TRUE`
 
-	for _, statement := range []string{providersTable, usageTable, defaultIndex} {
+	alterUsageTable := `
+ALTER TABLE IF EXISTS usage_records
+	ADD COLUMN IF NOT EXISTS cost DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS usage_records
+	ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE IF EXISTS usage_records
+	ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+`
+
+	for _, statement := range []string{providersTable, usageTable, alterUsageTable, defaultIndex} {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("migrate statement failed: %w", err)
 		}
@@ -81,6 +93,12 @@ WHERE is_default = TRUE`
 }
 
 func (s *PostgresStore) UpsertProvider(ctx context.Context, provider gateway.ProviderConfig) error {
+	if provider.ModelPrefixes == nil {
+		provider.ModelPrefixes = []string{}
+	}
+	if provider.Metadata == nil {
+		provider.Metadata = map[string]string{}
+	}
 	metadata, err := json.Marshal(provider.Metadata)
 	if err != nil {
 		return fmt.Errorf("marshal provider metadata: %w", err)
@@ -159,9 +177,9 @@ WHERE name = $1`, name)
 func (s *PostgresStore) RecordUsage(ctx context.Context, record gateway.UsageRecord) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO usage_records (
-	request_id, provider, endpoint, model, prompt_tokens, completion_tokens, total_tokens, success, latency_ms, error_message, created_at
+	request_id, provider, endpoint, model, prompt_tokens, completion_tokens, total_tokens, cost, success, latency_ms, started_at, finished_at, error_message, created_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
 		record.RequestID,
 		record.Provider,
 		record.Endpoint,
@@ -169,8 +187,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
 		record.PromptTokens,
 		record.CompletionTokens,
 		record.TotalTokens,
+		record.Cost,
 		record.Success,
 		record.LatencyMS,
+		record.StartedAt,
+		record.FinishedAt,
 		record.ErrorMessage,
 	)
 	if err != nil {
@@ -184,7 +205,7 @@ func (s *PostgresStore) ListUsage(ctx context.Context, limit int) ([]gateway.Usa
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, request_id, provider, endpoint, model, prompt_tokens, completion_tokens, total_tokens, success, latency_ms, error_message, created_at
+SELECT id, request_id, provider, endpoint, model, prompt_tokens, completion_tokens, total_tokens, cost, success, latency_ms, started_at, finished_at, error_message, created_at
 FROM usage_records
 ORDER BY id DESC
 LIMIT $1`, limit)
@@ -205,8 +226,11 @@ LIMIT $1`, limit)
 			&record.PromptTokens,
 			&record.CompletionTokens,
 			&record.TotalTokens,
+			&record.Cost,
 			&record.Success,
 			&record.LatencyMS,
+			&record.StartedAt,
+			&record.FinishedAt,
 			&record.ErrorMessage,
 			&record.CreatedAt,
 		); err != nil {
@@ -221,6 +245,7 @@ type scanFunc func(dest ...any) error
 
 func scanProvider(scan scanFunc) (gateway.ProviderConfig, error) {
 	var provider gateway.ProviderConfig
+	var prefixesRaw any
 	var metadataBytes []byte
 
 	if err := scan(
@@ -228,7 +253,7 @@ func scanProvider(scan scanFunc) (gateway.ProviderConfig, error) {
 		&provider.Type,
 		&provider.BaseURL,
 		&provider.APIKey,
-		&provider.ModelPrefixes,
+		&prefixesRaw,
 		&provider.Enabled,
 		&provider.IsDefault,
 		&metadataBytes,
@@ -248,6 +273,90 @@ func scanProvider(scan scanFunc) (gateway.ProviderConfig, error) {
 	if provider.Metadata == nil {
 		provider.Metadata = map[string]string{}
 	}
+	prefixes, err := parseModelPrefixes(prefixesRaw)
+	if err != nil {
+		return gateway.ProviderConfig{}, fmt.Errorf("parse provider model_prefixes: %w", err)
+	}
+	provider.ModelPrefixes = prefixes
 	provider.Type = strings.ToLower(provider.Type)
 	return provider, nil
+}
+
+func parseModelPrefixes(raw any) ([]string, error) {
+	switch v := raw.(type) {
+	case nil:
+		return []string{}, nil
+	case []string:
+		return sanitizePrefixes(v), nil
+	case []byte:
+		return parseModelPrefixes(string(v))
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" || s == "{}" {
+			return []string{}, nil
+		}
+		if strings.HasPrefix(s, "[") {
+			var arr []string
+			if err := json.Unmarshal([]byte(s), &arr); err != nil {
+				return nil, err
+			}
+			return sanitizePrefixes(arr), nil
+		}
+		if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(s, "{"), "}")
+			if strings.TrimSpace(inner) == "" {
+				return []string{}, nil
+			}
+			parts := splitPGArray(inner)
+			return sanitizePrefixes(parts), nil
+		}
+		return sanitizePrefixes([]string{s}), nil
+	default:
+		return nil, fmt.Errorf("unsupported type %T", raw)
+	}
+}
+
+func sanitizePrefixes(prefixes []string) []string {
+	out := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		p := strings.TrimSpace(prefix)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func splitPGArray(input string) []string {
+	items := []string{}
+	var buf strings.Builder
+	inQuotes := false
+	escaped := false
+	for _, r := range input {
+		if escaped {
+			buf.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' && inQuotes {
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			inQuotes = !inQuotes
+			continue
+		}
+		if r == ',' && !inQuotes {
+			items = append(items, buf.String())
+			buf.Reset()
+			continue
+		}
+		buf.WriteRune(r)
+	}
+	items = append(items, buf.String())
+	return items
 }

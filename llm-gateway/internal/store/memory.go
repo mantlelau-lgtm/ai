@@ -89,7 +89,14 @@ func (s *MemoryStore) RecordUsage(_ context.Context, record gateway.UsageRecord)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record.ID = int64(len(s.usage) + 1)
-	record.CreatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	if record.StartedAt.IsZero() {
+		record.StartedAt = now
+	}
+	if record.FinishedAt.IsZero() {
+		record.FinishedAt = now
+	}
+	record.CreatedAt = now
 	s.usage = append(s.usage, record)
 	return nil
 }
