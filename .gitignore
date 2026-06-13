@@ -1,5 +1,18 @@
 .DS_Store
+
+# Local-only workspaces and generated docs
 .tmp/
+deploy/
 docs/
+
+# Local environment files
+deploy/docker/.env
+deploy/docker/.env.local
 llm-gateway/.env.local
 llm-gateway/catalog.local.json
+core-service/.env.local
+message-gateway/.env.local
+
+# Local runtime files
+core-service/.venv/
+core-service/routing.json

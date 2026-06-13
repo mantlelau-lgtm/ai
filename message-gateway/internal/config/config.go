@@ -10,11 +10,15 @@ import (
 type Config struct {
 	HTTPAddr                  string
 	DatabaseURL               string
+	AdminConfigBaseURL        string
+	AdminMessageBotsPath      string
+	AdminMessageRoutesPath    string
 	LarkAppID                 string
 	LarkAppSecret             string
 	LarkVerificationToken     string
 	LarkEncryptKey            string
 	LarkOpenBaseURL           string
+	LarkBotsPath              string
 	LarkWSEnabled             bool
 	LarkStreamingCardEnabled  bool
 	LarkStreamingCardUpdate   time.Duration
@@ -34,11 +38,15 @@ func Load() Config {
 	return Config{
 		HTTPAddr:                  getenv("HTTP_ADDR", ":8080"),
 		DatabaseURL:               getenv("DATABASE_URL", "postgres://mgw:mgw_pwd@localhost:5432/message_gateway?sslmode=disable"),
+		AdminConfigBaseURL:        strings.TrimRight(os.Getenv("ADMIN_CONFIG_BASE_URL"), "/"),
+		AdminMessageBotsPath:      getenv("ADMIN_MESSAGE_BOTS_PATH", "/api/runtime/message-gateway/bots"),
+		AdminMessageRoutesPath:    getenv("ADMIN_MESSAGE_ROUTES_PATH", "/api/runtime/message-gateway/routes"),
 		LarkAppID:                 os.Getenv("LARK_APP_ID"),
 		LarkAppSecret:             os.Getenv("LARK_APP_SECRET"),
 		LarkVerificationToken:     os.Getenv("LARK_VERIFICATION_TOKEN"),
 		LarkEncryptKey:            os.Getenv("LARK_ENCRYPT_KEY"),
 		LarkOpenBaseURL:           getenv("LARK_OPEN_BASE_URL", "https://open.larksuite.com"),
+		LarkBotsPath:              os.Getenv("LARK_BOTS_PATH"),
 		LarkWSEnabled:             getBool("LARK_WS_ENABLED", false),
 		LarkStreamingCardEnabled:  getBool("LARK_STREAMING_CARD_ENABLED", true),
 		LarkStreamingCardUpdate:   getDuration("LARK_STREAMING_CARD_UPDATE_INTERVAL", 400*time.Millisecond),

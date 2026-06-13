@@ -59,6 +59,7 @@ func envelopeFromP2CardActionTrigger(event *callback.CardActionTriggerEvent) (mo
 
 	raw, _ := json.Marshal(event)
 	return model.Envelope{
+		BotID:        event.EventV2Base.Header.AppID,
 		EventID:      event.EventV2Base.Header.EventID,
 		EventType:    event.EventV2Base.Header.EventType,
 		Kind:         model.EnvelopeKindCardAction,

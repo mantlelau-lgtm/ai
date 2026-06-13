@@ -53,6 +53,7 @@ func envelopeFromP2MessageReceiveV1(event *larkim.P2MessageReceiveV1) (model.Env
 
 	raw, _ := json.Marshal(event)
 	return model.Envelope{
+		BotID:         event.EventV2Base.Header.AppID,
 		EventID:       event.EventV2Base.Header.EventID,
 		EventType:     event.EventV2Base.Header.EventType,
 		Kind:          model.EnvelopeKindMessage,
@@ -77,6 +78,7 @@ func envelopeFromP1MessageReceiveV1(event *larkim.P1MessageReceiveV1) (model.Env
 
 	raw, _ := json.Marshal(event)
 	return model.Envelope{
+		BotID:         "",
 		EventID:       event.Event.OpenMessageID,
 		EventType:     event.Event.Type,
 		Kind:          model.EnvelopeKindMessage,

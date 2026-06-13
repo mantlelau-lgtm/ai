@@ -6,26 +6,27 @@ import (
 )
 
 type Envelope struct {
-	EventID       string
-	EventType     string
-	Kind          string
-	ChatID        string
-	ChatType      string
-	MessageID     string
-	MessageType   string
-	SenderOpenID  string
-	SenderUserID  string
-	SenderUnionID string
-	TenantKey     string
-	Text          string
-	ActionName    string
-	ActionTag     string
-	ActionToken   string
-	ActionValue   json.RawMessage
-	FormValue     json.RawMessage
-	InputValue    string
-	TraceID       string
-	Raw           json.RawMessage
+	BotID         string          `json:"bot_id"`
+	EventID       string          `json:"event_id"`
+	EventType     string          `json:"event_type"`
+	Kind          string          `json:"kind"`
+	ChatID        string          `json:"chat_id"`
+	ChatType      string          `json:"chat_type"`
+	MessageID     string          `json:"message_id"`
+	MessageType   string          `json:"message_type"`
+	SenderOpenID  string          `json:"sender_open_id"`
+	SenderUserID  string          `json:"sender_user_id"`
+	SenderUnionID string          `json:"sender_union_id"`
+	TenantKey     string          `json:"tenant_key"`
+	Text          string          `json:"text"`
+	ActionName    string          `json:"action_name"`
+	ActionTag     string          `json:"action_tag"`
+	ActionToken   string          `json:"action_token"`
+	ActionValue   json.RawMessage `json:"action_value,omitempty"`
+	FormValue     json.RawMessage `json:"form_value,omitempty"`
+	InputValue    string          `json:"input_value"`
+	TraceID       string          `json:"trace_id"`
+	Raw           json.RawMessage `json:"raw,omitempty"`
 }
 
 type RouteResult struct {
@@ -35,6 +36,7 @@ type RouteResult struct {
 }
 
 type SendMessagePayload struct {
+	BotID         string `json:"bot_id,omitempty"`
 	ReceiveID     string `json:"receive_id"`
 	ReceiveIDType string `json:"receive_id_type"`
 	MsgType       string `json:"msg_type"`

@@ -53,37 +53,12 @@ func buildCardHeader(title string) map[string]any {
 			"content": title,
 		},
 		"template": "blue",
-		"icon": map[string]any{
-			"tag":   "standard_icon",
-			"token": "ai-colorful",
-		},
 	}
 }
 
 func buildCardConfig(streaming bool, summary string) map[string]any {
 	cfg := map[string]any{
-		"width_mode":   "fill",
 		"update_multi": true,
-		"style": map[string]any{
-			"text_size": map[string]any{
-				"usage-size": map[string]any{
-					"default": "small",
-					"pc":      "small",
-					"mobile":  "small",
-				},
-			},
-		},
-	}
-	if streaming {
-		cfg["streaming_mode"] = true
-		cfg["streaming_config"] = map[string]any{
-			"print_frequency_ms": map[string]any{"default": 30, "pc": 50},
-			"print_step":         map[string]any{"default": 2},
-			"print_strategy":     "fast",
-		}
-		if strings.TrimSpace(summary) != "" {
-			cfg["summary"] = map[string]any{"content": summary}
-		}
 	}
 	return cfg
 }
@@ -122,16 +97,14 @@ func BuildFinalCard(content string) (string, error) {
 
 func buildCard(content string, streaming bool, summary string) (string, error) {
 	card := map[string]any{
-		"schema": "2.0",
 		"config": buildCardConfig(streaming, summary),
 		"header": buildCardHeader(extractTitle(content)),
-		"body": map[string]any{
-			"vertical_spacing": "8px",
-			"elements": []any{
-				map[string]any{
-					"tag":        "markdown",
-					"content":    toLarkMarkdown(limitTables(stripTitle(content))),
-					"element_id": "main_content",
+		"elements": []any{
+			map[string]any{
+				"tag": "div",
+				"text": map[string]any{
+					"tag":     "lark_md",
+					"content": toLarkMarkdown(limitTables(stripTitle(content))),
 				},
 			},
 		},

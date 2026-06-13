@@ -1,6 +1,8 @@
 module llm-gateway
 
-go 1.26.0
+go 1.23.0
+
+toolchain go1.23.12
 
 require github.com/jackc/pgx/v5 v5.7.6
 

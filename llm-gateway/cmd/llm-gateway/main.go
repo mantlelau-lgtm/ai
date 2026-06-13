@@ -38,6 +38,16 @@ func main() {
 
 	manager := provider.NewManager(pgStore)
 	reloadCatalog := func(ctx context.Context) error {
+		if cfg.AdminConfigBaseURL != "" {
+			models, err := config.ApplyCatalogFromURL(ctx, pgStore, cfg.AdminConfigBaseURL+cfg.AdminCatalogPath)
+			if err == nil {
+				manager.SetModelRoutes(models)
+				return nil
+			}
+			if cfg.CatalogPath == "" {
+				return err
+			}
+		}
 		if cfg.CatalogPath == "" {
 			manager.SetModelRoutes(nil)
 			return nil
@@ -51,6 +61,19 @@ func main() {
 	}
 	if err := reloadCatalog(ctx); err != nil {
 		log.Fatalf("load catalog: %v", err)
+	}
+	if cfg.AdminConfigBaseURL != "" && cfg.AdminConfigReloadInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(cfg.AdminConfigReloadInterval)
+			defer ticker.Stop()
+			for range ticker.C {
+				reloadCtx, reloadCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				if err := reloadCatalog(reloadCtx); err != nil {
+					logger.Error("reload catalog from admin failed", "error", err)
+				}
+				reloadCancel()
+			}
+		}()
 	}
 
 	server := httpapi.NewServer(cfg, pgStore, manager, reloadCatalog, logger)

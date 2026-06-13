@@ -43,7 +43,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	}
 
 	m := metrics.New()
-	rt := router.New(cfg.RouteRulesPath, cfg.RouteRulesReloadInterval, logger)
+	rulesURL := ""
+	if cfg.AdminConfigBaseURL != "" {
+		rulesURL = cfg.AdminConfigBaseURL + cfg.AdminMessageRoutesPath
+	}
+	rt := router.New(cfg.RouteRulesPath, rulesURL, cfg.RouteRulesReloadInterval, logger)
 	rt.Start(ctx)
 
 	larkClient := mgwdispatcher.NewLarkClient(cfg)
@@ -89,19 +93,33 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	})
 
 	if cfg.LarkWSEnabled {
-		wsClient := larkws.NewClient(
-			cfg.LarkAppID,
-			cfg.LarkAppSecret,
-			larkws.WithEventHandler(eventDispatcher),
-			larkws.WithDomain(cfg.LarkOpenBaseURL),
-			larkws.WithLogLevel(larkcore.LogLevelInfo),
-		)
-
-		go func() {
-			if err := wsClient.Start(ctx); err != nil {
-				logger.Error("lark ws client start failed", "error", err)
+		bots := mgwdispatcher.LoadLarkBotCredentials(cfg)
+		if len(bots) == 0 && cfg.LarkAppID != "" && cfg.LarkAppSecret != "" {
+			bots = []mgwdispatcher.LarkBotCredential{{
+				BotID:       cfg.LarkAppID,
+				AppID:       cfg.LarkAppID,
+				AppSecret:   cfg.LarkAppSecret,
+				OpenBaseURL: cfg.LarkOpenBaseURL,
+			}}
+		}
+		for _, b := range bots {
+			domain := b.OpenBaseURL
+			if domain == "" {
+				domain = cfg.LarkOpenBaseURL
 			}
-		}()
+			wsClient := larkws.NewClient(
+				b.AppID,
+				b.AppSecret,
+				larkws.WithEventHandler(eventDispatcher),
+				larkws.WithDomain(domain),
+				larkws.WithLogLevel(larkcore.LogLevelInfo),
+			)
+			go func() {
+				if err := wsClient.Start(ctx); err != nil {
+					logger.Error("lark ws client start failed", "error", err)
+				}
+			}()
+		}
 	}
 
 	callback := httpserverext.NewEventHandlerFunc(eventDispatcher, larkevent.WithLogLevel(larkcore.LogLevelInfo))

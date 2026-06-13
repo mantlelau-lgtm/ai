@@ -15,10 +15,10 @@ type Router struct {
 	loader *RulesLoader
 }
 
-func New(rulesPath string, reloadInterval time.Duration, logger *slog.Logger) *Router {
+func New(rulesPath string, sourceURL string, reloadInterval time.Duration, logger *slog.Logger) *Router {
 	return &Router{
 		logger: logger,
-		loader: NewRulesLoader(rulesPath, reloadInterval, logger),
+		loader: NewRulesLoader(rulesPath, sourceURL, reloadInterval, logger),
 	}
 }
 

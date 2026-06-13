@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -57,6 +58,29 @@ func LoadCatalog(path string) (Catalog, error) {
 	return c, nil
 }
 
+func LoadCatalogFromURL(ctx context.Context, url string) (Catalog, error) {
+	if strings.TrimSpace(url) == "" {
+		return Catalog{}, fmt.Errorf("catalog url is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("build catalog request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("request catalog: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return Catalog{}, fmt.Errorf("request catalog failed: status=%d", resp.StatusCode)
+	}
+	var c Catalog
+	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
+		return Catalog{}, fmt.Errorf("decode catalog: %w", err)
+	}
+	return c, nil
+}
+
 func ApplyCatalog(ctx context.Context, st store.Store, path string) ([]gateway.ModelRoute, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
@@ -65,7 +89,18 @@ func ApplyCatalog(ctx context.Context, st store.Store, path string) ([]gateway.M
 	if err != nil {
 		return nil, err
 	}
+	return ApplyCatalogData(ctx, st, catalog)
+}
 
+func ApplyCatalogFromURL(ctx context.Context, st store.Store, url string) ([]gateway.ModelRoute, error) {
+	catalog, err := LoadCatalogFromURL(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return ApplyCatalogData(ctx, st, catalog)
+}
+
+func ApplyCatalogData(ctx context.Context, st store.Store, catalog Catalog) ([]gateway.ModelRoute, error) {
 	keys := map[string]string{}
 	for _, item := range catalog.Keys {
 		if strings.TrimSpace(item.Name) == "" {

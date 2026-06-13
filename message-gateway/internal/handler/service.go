@@ -87,6 +87,11 @@ func (s *Service) enqueueLocalReply(ctx context.Context, env model.Envelope, rou
 		return err
 	}
 
+	botID := strings.TrimSpace(env.BotID)
+	if botID == "" {
+		botID = strings.TrimSpace(s.cfg.LarkAppID)
+	}
+
 	receiveID := env.ChatID
 	receiveIDType := "chat_id"
 	if receiveID == "" {
@@ -95,6 +100,7 @@ func (s *Service) enqueueLocalReply(ctx context.Context, env model.Envelope, rou
 	}
 
 	err = s.store.EnqueueSendMessage(ctx, model.SendMessagePayload{
+		BotID:         botID,
 		ReceiveID:     receiveID,
 		ReceiveIDType: receiveIDType,
 		MsgType:       "text",
@@ -142,7 +148,7 @@ func (s *Service) processSendMessageJob(ctx context.Context, job model.Job) erro
 		return s.store.MarkJobDead(ctx, job.ID, fmt.Sprintf("invalid payload: %v", err))
 	}
 
-	if err := s.lark.SendMessage(ctx, payload); err != nil {
+	if err := s.lark.SendMessage(ctx, strings.TrimSpace(payload.BotID), payload); err != nil {
 		if job.Attempts+1 >= job.MaxAttempts {
 			s.metrics.IncJobsDead()
 			return s.store.MarkJobDead(ctx, job.ID, err.Error())
@@ -171,6 +177,10 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 	}
 
 	env := payload.Envelope
+	botID := strings.TrimSpace(env.BotID)
+	if botID == "" {
+		botID = strings.TrimSpace(s.cfg.LarkAppID)
+	}
 	sessionID := env.ChatID
 	if sessionID == "" {
 		sessionID = env.SenderUserID
@@ -183,7 +193,7 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 	}
 
 	if !s.cfg.LarkStreamingCardEnabled {
-		res, err := s.core.StreamReply(ctx, env, s.cfg.LarkAppID, sessionID)
+		res, err := s.core.StreamReply(ctx, env, botID, sessionID)
 		if err != nil {
 			if job.Attempts+1 >= job.MaxAttempts {
 				s.metrics.IncJobsDead()
@@ -215,6 +225,7 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 
 			dedupKey := fmt.Sprintf("%s:core_reply", env.EventID)
 			err = s.store.EnqueueSendMessage(ctx, model.SendMessagePayload{
+				BotID:         botID,
 				ReceiveID:     receiveID,
 				ReceiveIDType: receiveIDType,
 				MsgType:       "text",
@@ -267,7 +278,8 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 		return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
 	}
 
-	messageID, err := s.lark.CreateMessage(ctx, model.SendMessagePayload{
+	messageID, err := s.lark.CreateMessage(ctx, botID, model.SendMessagePayload{
+		BotID:         botID,
 		ReceiveID:     receiveID,
 		ReceiveIDType: receiveIDType,
 		MsgType:       "interactive",
@@ -294,7 +306,7 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 		if err != nil {
 			return err
 		}
-		return s.lark.PatchMessage(ctx, messageID, c)
+		return s.lark.PatchMessage(ctx, botID, messageID, c)
 	}
 
 	updateFinal := func() error {
@@ -303,10 +315,10 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 		if err != nil {
 			return err
 		}
-		return s.lark.PatchMessage(ctx, messageID, c)
+		return s.lark.PatchMessage(ctx, botID, messageID, c)
 	}
 
-	err = s.core.StreamReplyChunks(ctx, env, s.cfg.LarkAppID, sessionID, func(delta string) error {
+	err = s.core.StreamReplyChunks(ctx, env, botID, sessionID, func(delta string) error {
 		if delta != "" {
 			full.WriteString(delta)
 		}

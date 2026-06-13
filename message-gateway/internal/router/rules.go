@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -39,20 +40,23 @@ type RuleAction struct {
 }
 
 type ruleState struct {
-	rules   []Rule
-	modTime time.Time
+	rules     []Rule
+	modTime   time.Time
+	signature string
 }
 
 type RulesLoader struct {
 	path           string
+	sourceURL      string
 	reloadInterval time.Duration
 	logger         *slog.Logger
 	state          atomic.Value
 }
 
-func NewRulesLoader(path string, reloadInterval time.Duration, logger *slog.Logger) *RulesLoader {
+func NewRulesLoader(path string, sourceURL string, reloadInterval time.Duration, logger *slog.Logger) *RulesLoader {
 	rl := &RulesLoader{
 		path:           path,
+		sourceURL:      sourceURL,
 		reloadInterval: reloadInterval,
 		logger:         logger,
 	}
@@ -61,7 +65,7 @@ func NewRulesLoader(path string, reloadInterval time.Duration, logger *slog.Logg
 }
 
 func (r *RulesLoader) Start(ctx context.Context) {
-	if r.path == "" || r.reloadInterval <= 0 {
+	if (r.path == "" && r.sourceURL == "") || r.reloadInterval <= 0 {
 		return
 	}
 
@@ -87,6 +91,10 @@ func (r *RulesLoader) Rules() []Rule {
 }
 
 func (r *RulesLoader) tryReload(ctx context.Context, force bool) {
+	if r.sourceURL != "" {
+		r.tryReloadFromURL(ctx, force)
+		return
+	}
 	info, err := os.Stat(r.path)
 	if err != nil {
 		if force {
@@ -114,6 +122,44 @@ func (r *RulesLoader) tryReload(ctx context.Context, force bool) {
 
 	r.state.Store(ruleState{rules: rules, modTime: info.ModTime()})
 	r.logger.Info("route rules loaded", "path", r.path, "count", len(rules), "mtime", info.ModTime())
+}
+
+func (r *RulesLoader) tryReloadFromURL(ctx context.Context, force bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.sourceURL, nil)
+	if err != nil {
+		if force {
+			r.logger.Warn("route rules request build failed", "url", r.sourceURL, "error", err)
+		}
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if force {
+			r.logger.Warn("route rules request failed", "url", r.sourceURL, "error", err)
+		}
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		if force {
+			r.logger.Warn("route rules request returned error", "url", r.sourceURL, "status", resp.StatusCode)
+		}
+		return
+	}
+	var payload RuleSet
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		r.logger.Warn("route rules decode failed", "url", r.sourceURL, "error", err)
+		return
+	}
+	rules := normalizeRules(payload.Rules)
+	signatureBytes, _ := json.Marshal(rules)
+	signature := string(signatureBytes)
+	st := r.state.Load().(ruleState)
+	if !force && st.signature == signature {
+		return
+	}
+	r.state.Store(ruleState{rules: rules, signature: signature})
+	r.logger.Info("route rules loaded", "url", r.sourceURL, "count", len(rules))
 }
 
 func parseRules(b []byte) ([]Rule, error) {
