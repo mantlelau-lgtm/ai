@@ -69,108 +69,78 @@ def validate_bundle(bundle: BundlePayload) -> ValidationResponse:
             add("bots", "errors", f"{label} 的 open_base_url 需要以 http:// 或 https:// 开头。")
         if not bot.open_base_url:
             add("bots", "warnings", f"{label} 未设置 open_base_url，将依赖服务默认值。")
-
-    key_names: set[str] = set()
-    for index, key in enumerate(bundle.llm.keys, start=1):
-        label = f"Key #{index}"
-        name = key.name.strip()
-        value_env = key.value_env.strip()
-        if not name:
-            add("llm", "errors", f"{label} 缺少 name。")
-        if not value_env:
-            add("llm", "warnings", f"{label} 未设置 value_env。")
-        if name:
-            if name in key_names:
-                add("llm", "errors", f"LLM keys 中存在重复名称: {name}。")
-            key_names.add(name)
-        if not key.value.strip() and not value_env:
-            add("llm", "errors", f"{label} 需要至少配置 value 或 value_env。")
-
-    provider_names: set[str] = set()
-    default_provider_count = 0
-    for index, provider in enumerate(bundle.llm.providers, start=1):
-        label = f"Provider #{index}"
-        name = provider.name.strip()
-        if not name:
-            add("llm", "errors", f"{label} 缺少 name。")
-        if not provider.base_url.strip():
-            add("llm", "errors", f"{label} 缺少 base_url。")
-        if not provider.api_key_from.strip():
-            if not provider.api_key.strip():
-                add("llm", "errors", f"{label} 缺少 api_key 或 api_key_from。")
-        elif provider.api_key_from.strip() not in key_names:
-            add("llm", "errors", f"{label} 引用了不存在的 key: {provider.api_key_from.strip()}。")
-        if name:
-            if name in provider_names:
-                add("llm", "errors", f"LLM providers 中存在重复名称: {name}。")
-            provider_names.add(name)
-        if provider.is_default:
-            default_provider_count += 1
-        if provider.base_url and not provider.base_url.startswith(("http://", "https://")):
-            add("llm", "errors", f"{label} 的 base_url 需要以 http:// 或 https:// 开头。")
-
-    if default_provider_count == 0 and bundle.llm.providers:
-        add("llm", "warnings", "当前没有默认 provider，服务端会依赖其他回退逻辑。")
-    if default_provider_count > 1:
-        add("llm", "errors", "默认 provider 只能有一个。")
+        if not bot.agent_name.strip():
+            add("bots", "warnings", f"{label} 未绑定 agent_name。")
 
     model_names: set[str] = set()
+    model_ids: set[str] = set()
     enabled_models = 0
     for index, model in enumerate(bundle.llm.models, start=1):
         label = f"Model #{index}"
         name = model.name.strip()
+        model_id = model.model_id.strip()
         provider_name = model.provider.strip()
-        upstream = model.upstream_model.strip()
+        upstream = model.upstream_model.strip() or model_id
         if not name:
-            add("llm", "errors", f"{label} 缺少 name。")
+            add("llm", "errors", f"{label} 缺少 模型名称。")
+        if not model_id:
+            add("llm", "errors", f"{label} 缺少 模型ID。")
+        elif model_id in model_ids:
+            add("llm", "errors", f"模型ID 重复: {model_id}。")
+        else:
+            model_ids.add(model_id)
         if not provider_name:
-            add("llm", "errors", f"{label} 缺少 provider。")
-        elif provider_name not in provider_names:
-            add("llm", "errors", f"{label} 引用了不存在的 provider: {provider_name}。")
+            add("llm", "errors", f"{label} 缺少 厂商名称。")
         if not upstream:
             add("llm", "errors", f"{label} 缺少 upstream_model。")
         if name:
             if name in model_names:
-                add("llm", "errors", f"LLM models 中存在重复名称: {name}。")
+                add("llm", "errors", f"模型名称重复: {name}。")
             model_names.add(name)
         if model.enabled:
             enabled_models += 1
         if model.prompt_cost_per_1k_tokens < 0 or model.completion_cost_per_1k_tokens < 0:
             add("llm", "errors", f"{label} 的成本字段不能为负数。")
+        if model.unit_price < 0:
+            add("llm", "errors", f"{label} 的单价不能为负数。")
 
     if enabled_models == 0 and bundle.llm.models:
         add("llm", "warnings", "当前没有启用中的模型。")
 
-    route_bot_ids: set[str] = set()
+    key_names: set[str] = set()
+    default_credential_count = 0
+    for index, credential in enumerate(bundle.llm.credentials, start=1):
+        label = f"Key #{index}"
+        key_name = credential.key_name.strip()
+        if not key_name:
+            add("llm", "errors", f"{label} 缺少 密钥名称。")
+        elif key_name in key_names:
+            add("llm", "errors", f"密钥名称重复: {key_name}。")
+        else:
+            key_names.add(key_name)
+        if not credential.base_url.strip():
+            add("llm", "errors", f"{label} 缺少 base_url。")
+        elif not credential.base_url.startswith(("http://", "https://")):
+            add("llm", "errors", f"{label} 的 base_url 需要以 http:// 或 https:// 开头。")
+        if not credential.key_value.strip():
+            add("llm", "errors", f"{label} 缺少 密钥值。")
+        if credential.call_type.strip() not in {"stream", "non_stream"}:
+            add("llm", "errors", f"{label} 的 调用类型 必须是 stream 或 non_stream。")
+        model_id = credential.model_id.strip()
+        if not model_id:
+            add("llm", "errors", f"{label} 必须绑定 模型ID。")
+        elif model_id not in model_ids:
+            add("llm", "errors", f"{label} 引用了不存在的 模型ID: {model_id}。")
+        if credential.is_default:
+            default_credential_count += 1
+
+    if default_credential_count == 0 and bundle.llm.credentials:
+        add("llm", "warnings", "当前没有默认密钥，core-service 未传 key 时将无法路由。")
+    if default_credential_count > 1:
+        add("llm", "errors", "默认密钥只能有一个。")
+
     if not bundle.routing.default_agent.strip():
         add("routing", "errors", "default_agent 不能为空。")
-    agent_names: set[str] = set()
-    for index, agent in enumerate(bundle.routing.agents, start=1):
-        label = f"Agent #{index}"
-        name = agent.name.strip().lower()
-        if not name:
-            add("routing", "errors", f"{label} 缺少 name。")
-            continue
-        if name in agent_names:
-            add("routing", "errors", f"routing.agents 中存在重复名称: {name}。")
-        agent_names.add(name)
-    for index, route in enumerate(bundle.routing.bots, start=1):
-        label = f"Route #{index}"
-        bot_id = route.bot_id.strip()
-        agent_name = route.agent_name.strip().lower()
-        if not bot_id:
-            add("routing", "errors", f"{label} 缺少 bot_id。")
-        if not agent_name:
-            add("routing", "errors", f"{label} 缺少 agent_name。")
-        elif agent_names and agent_name not in agent_names:
-            add("routing", "warnings", f"{label} 引用了未声明的 agent: {agent_name}。")
-        if bot_id:
-            if bot_id in route_bot_ids:
-                add("routing", "errors", f"路由配置中存在重复的 bot_id: {bot_id}。")
-            route_bot_ids.add(bot_id)
-
-    if bundle.routing.default_agent.strip().lower() and agent_names and bundle.routing.default_agent.strip().lower() not in agent_names:
-        add("routing", "warnings", f"default_agent {bundle.routing.default_agent.strip()} 未在 agents 列表中声明。")
 
     rule_ids: set[str] = set()
     for index, rule in enumerate(bundle.message_routes.rules, start=1):
@@ -182,14 +152,6 @@ def validate_bundle(bundle: BundlePayload) -> ValidationResponse:
         if rule_id in rule_ids:
             add("message_routes", "errors", f"message_routes 中存在重复的 id: {rule_id}。")
         rule_ids.add(rule_id)
-
-    for route_bot_id in sorted(route_bot_ids):
-        if route_bot_id not in bot_ids:
-            add("cross", "warnings", f"路由中的 bot_id {route_bot_id} 未在 Bot 配置中声明。")
-
-    for bot_id in sorted(bot_ids):
-        if bot_id not in route_bot_ids:
-            add("cross", "warnings", f"Bot {bot_id} 尚未配置 agent 路由。")
 
     errors = _flatten(bucket.errors for bucket in sections.values())
     warnings = _flatten(bucket.warnings for bucket in sections.values())

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -195,13 +196,15 @@ func (c *LarkClient) CreateMessage(ctx context.Context, botID string, payload mo
 	if err != nil {
 		return "", err
 	}
+	uuid := normalizeLarkUUID(payload.UUID)
+	slog.Default().Info("lark create message request", "bot_id", botID, "receive_id_type", payload.ReceiveIDType, "receive_id", payload.ReceiveID, "msg_type", payload.MsgType, "uuid", uuid, "content_len", len(payload.Content), "content_preview", truncateLogValue(payload.Content, 500))
 	req := larkim.NewCreateMessageReqBuilder().
 		ReceiveIdType(payload.ReceiveIDType).
 		Body(larkim.NewCreateMessageReqBodyBuilder().
 			ReceiveId(payload.ReceiveID).
 			MsgType(payload.MsgType).
 			Content(payload.Content).
-			Uuid(payload.UUID).
+			Uuid(uuid).
 			Build()).
 		Build()
 
@@ -216,6 +219,32 @@ func (c *LarkClient) CreateMessage(ctx context.Context, botID string, payload mo
 		return "", fmt.Errorf("lark create message missing message_id: request_id=%s", resp.RequestId())
 	}
 	return *resp.Data.MessageId, nil
+}
+
+func truncateLogValue(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit]
+}
+
+func normalizeLarkUUID(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+		if b.Len() >= 32 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func (c *LarkClient) PatchMessage(ctx context.Context, botID string, messageID string, content string) error {

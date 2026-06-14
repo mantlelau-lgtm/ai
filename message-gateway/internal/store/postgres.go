@@ -149,6 +149,22 @@ RETURNING j.job_id, j.job_type, j.status, j.attempts, j.max_attempts, j.payload
 	return jobs, rows.Err()
 }
 
+func (s *PostgresStore) ResetStaleRunningJobs(ctx context.Context, olderThan time.Duration) (int64, error) {
+	const query = `
+UPDATE job
+SET status = $1,
+    next_run_at = now(),
+    last_error = 'reset stale running job',
+    updated_at = now()
+WHERE status = $2 AND updated_at < now() - ($3::double precision * interval '1 second')
+`
+	tag, err := s.pool.Exec(ctx, query, model.JobStatusPending, model.JobStatusRunning, olderThan.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (s *PostgresStore) MarkJobSucceeded(ctx context.Context, jobID string) error {
 	const query = `
 UPDATE job

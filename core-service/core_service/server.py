@@ -9,6 +9,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from core_service.agents import AgentRegistry
 from core_service.config import cfg
+from core_service.logging import logger
 from core_service.metrics import metrics
 from core_service.models import Envelope
 from core_service.orchestrator import Orchestrator
@@ -21,6 +22,7 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def _startup() -> None:
+    logger.info("core-service startup started")
     pool = await asyncpg.create_pool(dsn=cfg.database_url, min_size=1, max_size=10)
     store = Store(pool)
     await store.migrate()
@@ -39,6 +41,7 @@ async def _startup() -> None:
     app.state.routing = routing
     app.state.orchestrator = Orchestrator(store, registry, routing)
     app.state.routing_task = _start_routing_reload_task(routing)
+    await _register_agents_with_admin(registry)
 
 
 @app.on_event("shutdown")
@@ -77,6 +80,16 @@ async def messages_stream(
     body: dict[str, Any] = await request.json()
     raw_env = body.get("envelope") or {}
     envelope = Envelope.from_dict(raw_env)
+    logger.info(
+        "message stream request received",
+        extra={
+            "request_id": x_request_id or envelope.event_id,
+            "event_id": envelope.event_id,
+            "bot_id": x_bot_id or envelope.bot_id,
+            "chat_id": x_chat_id or envelope.chat_id,
+            "agent_header": x_agent_name or "",
+        },
+    )
 
     orchestrator: Orchestrator = app.state.orchestrator
 
@@ -159,3 +172,35 @@ def _start_routing_reload_task(manager: RoutingManager) -> Optional[asyncio.Task
             await asyncio.sleep(cfg.routing_reload_interval_seconds)
 
     return asyncio.create_task(_loop())
+
+
+async def _register_agents_with_admin(registry: AgentRegistry) -> None:
+    if not cfg.admin_config_base_url:
+        return
+    import json
+    import aiohttp
+
+    url = f"{cfg.admin_config_base_url}{cfg.admin_agents_register_path}"
+    agents = []
+    for name in registry.names():
+        agent = registry.get(name)
+        agents.append({
+            "name": name,
+            "type": agent.__class__.__name__.replace("Agent", "").lower(),
+            "source": "core-service",
+            "description": f"Built-in agent: {name}",
+        })
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json={"agents": agents},
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as response:
+                if response.status >= 400:
+                    body = await response.text()
+                    logger.error("agent registration failed", extra={"status": response.status, "body": body})
+                else:
+                    logger.info("agents registered with admin", extra={"count": len(agents)})
+    except Exception as exc:
+        logger.exception("agent registration error", exc_info=exc)

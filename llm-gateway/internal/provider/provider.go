@@ -115,6 +115,34 @@ func (m *Manager) ResolveProvider(ctx context.Context, model string) (gateway.Pr
 	return *defaultProvider, handler, model, nil
 }
 
+func (m *Manager) ResolveProviderByName(ctx context.Context, providerName, model string) (gateway.ProviderConfig, Provider, string, error) {
+	providers, err := m.store.ListProviders(ctx)
+	if err != nil {
+		return gateway.ProviderConfig{}, nil, "", err
+	}
+	target := strings.ToLower(strings.TrimSpace(providerName))
+	for _, candidate := range providers {
+		if !candidate.Enabled {
+			continue
+		}
+		if strings.ToLower(candidate.Name) != target {
+			continue
+		}
+		handler, ok := m.providers[candidate.Type]
+		if !ok {
+			return gateway.ProviderConfig{}, nil, "", fmt.Errorf("unsupported provider type %q", candidate.Type)
+		}
+		upstreamModel := model
+		m.mu.RLock()
+		if route, ok := m.models[model]; ok {
+			upstreamModel = route.UpstreamModel
+		}
+		m.mu.RUnlock()
+		return candidate, handler, upstreamModel, nil
+	}
+	return gateway.ProviderConfig{}, nil, "", fmt.Errorf("provider %q not found or disabled", providerName)
+}
+
 func (m *Manager) AggregateModels(ctx context.Context) ([]gateway.ModelInfo, error) {
 	m.mu.RLock()
 	if len(m.models) > 0 {

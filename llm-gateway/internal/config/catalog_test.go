@@ -21,7 +21,7 @@ func TestApplyCatalog(t *testing.T) {
     {"name":"openai-default","type":"openai","base_url":"https://api.openai.com/v1","api_key_from":"openai-main","enabled":true,"is_default":true}
   ],
   "models": [
-    {"name":"mock-chat","provider":"default-mock","upstream_model":"mock-chat","owned_by":"mock","enabled":true},
+    {"name":"mock-chat","provider":"default-mock","upstream_model":"mock-chat","owned_by":"mock","unit_price":0.005,"enabled":true},
     {"name":"gpt-4o-mini","provider":"openai-default","upstream_model":"gpt-4o-mini","owned_by":"openai","enabled":true}
   ]
 }`), 0o644)

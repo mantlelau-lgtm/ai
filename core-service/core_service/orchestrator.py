@@ -7,6 +7,7 @@ from typing import AsyncIterator, Optional
 
 from core_service.agents import AgentContext, AgentRegistry
 from core_service.config import cfg
+from core_service.logging import logger
 from core_service.metrics import metrics
 from core_service.models import (
     Envelope,
@@ -53,6 +54,7 @@ class Orchestrator:
 
         user_input = self._extract_user_input(envelope)
         if not user_input.strip():
+            logger.warning("message stream rejected: empty input", extra={"request_id": request_id, "event_id": envelope.event_id})
             metrics.inc_failed()
             yield self._sse(StreamChunk(type="error", done=True, error="empty envelope input", request_id=request_id, task_id=task_id))
             yield b"data: [DONE]\n\n"
@@ -71,6 +73,20 @@ class Orchestrator:
         else:
             agent_name = header_agent_name.strip() or "general"
         agent = self._registry.get(agent_name)
+        llm_key_name = ""
+        if self._routing is not None and self._routing.current is not None:
+            llm_key_name = self._routing.current.get_agent_key_name(agent_name)
+        logger.info(
+            "agent resolved for message stream",
+            extra={
+                "request_id": request_id,
+                "task_id": task_id,
+                "event_id": envelope.event_id,
+                "bot_id": bot_id,
+                "agent_name": agent_name,
+                "llm_key_name": llm_key_name,
+            },
+        )
         user_id = header_user_id.strip() or envelope.sender_user_id
         open_id = header_open_id.strip() or envelope.sender_open_id
         chat_id = header_chat_id.strip() or envelope.chat_id
@@ -106,6 +122,7 @@ class Orchestrator:
             user_input=user_input,
             history=history,
             envelope=envelope,
+            llm_key_name=llm_key_name,
         )
 
         yield self._sse(StreamChunk(type="start", request_id=request_id, task_id=task_id))
@@ -122,6 +139,7 @@ class Orchestrator:
                     answer_parts.append(delta)
                     yield self._sse(StreamChunk(type="delta", text=delta, request_id=request_id, task_id=task_id))
         except Exception as e:
+            logger.exception("agent stream failed", extra={"request_id": request_id, "task_id": task_id, "agent_name": agent_name, "llm_key_name": llm_key_name})
             metrics.inc_failed()
             await self._store.fail_task(task_id, str(e))
             yield self._sse(StreamChunk(type="error", done=True, error=str(e), request_id=request_id, task_id=task_id))
@@ -134,6 +152,17 @@ class Orchestrator:
         await self._store.complete_task(task_id)
 
         finished_at = datetime.now(timezone.utc)
+        logger.info(
+            "message stream completed",
+            extra={
+                "request_id": request_id,
+                "task_id": task_id,
+                "agent_name": agent_name,
+                "llm_key_name": llm_key_name,
+                "answer_chars": len(assistant),
+                "latency_ms": int((finished_at - started_at).total_seconds() * 1000),
+            },
+        )
         if last_usage is None:
             last_usage = Usage()
         last_usage.started_at = started_at

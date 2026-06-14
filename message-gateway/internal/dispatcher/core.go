@@ -120,6 +120,7 @@ type coreStreamChunk struct {
 func streamSSE(r io.Reader, onDelta func(text string) error) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	lastText := ""
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -140,9 +141,17 @@ func streamSSE(r io.Reader, onDelta func(text string) error) error {
 		if strings.HasPrefix(data, "{") {
 			var chunk coreStreamChunk
 			if err := json.Unmarshal([]byte(data), &chunk); err == nil {
+				if chunk.Done && chunk.Type == "done" {
+					return nil
+				}
 				if chunk.Text != "" {
-					if onDelta != nil {
-						if err := onDelta(chunk.Text); err != nil {
+					delta := chunk.Text
+					if strings.HasPrefix(chunk.Text, lastText) {
+						delta = strings.TrimPrefix(chunk.Text, lastText)
+					}
+					lastText = chunk.Text
+					if delta != "" && onDelta != nil {
+						if err := onDelta(delta); err != nil {
 							return err
 						}
 					}
@@ -171,6 +180,7 @@ func streamNDJSONOrJSON(r io.Reader, onDelta func(text string) error) error {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	seenLine := false
+	lastText := ""
 	for sc.Scan() {
 		seenLine = true
 		line := strings.TrimSpace(sc.Text())
@@ -181,9 +191,17 @@ func streamNDJSONOrJSON(r io.Reader, onDelta func(text string) error) error {
 		if strings.HasPrefix(line, "{") {
 			var chunk coreStreamChunk
 			if err := json.Unmarshal([]byte(line), &chunk); err == nil {
+				if chunk.Done && chunk.Type == "done" {
+					return nil
+				}
 				if chunk.Text != "" {
-					if onDelta != nil {
-						if err := onDelta(chunk.Text); err != nil {
+					delta := chunk.Text
+					if strings.HasPrefix(chunk.Text, lastText) {
+						delta = strings.TrimPrefix(chunk.Text, lastText)
+					}
+					lastText = chunk.Text
+					if delta != "" && onDelta != nil {
+						if err := onDelta(delta); err != nil {
 							return err
 						}
 					}

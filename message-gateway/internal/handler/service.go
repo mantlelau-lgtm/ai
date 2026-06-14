@@ -48,6 +48,7 @@ func NewService(
 }
 
 func (s *Service) HandleInbound(ctx context.Context, env model.Envelope) (model.RouteResult, error) {
+	s.logger.Info("inbound event received", "event_id", env.EventID, "message_id", env.MessageID, "bot_id", env.BotID, "chat_id", env.ChatID, "kind", env.Kind)
 	inserted, err := s.store.InsertInboundEvent(ctx, env)
 	if err != nil {
 		return model.RouteResult{}, err
@@ -60,6 +61,7 @@ func (s *Service) HandleInbound(ctx context.Context, env model.Envelope) (model.
 	s.metrics.IncInboundEvents()
 
 	route := s.router.Route(env)
+	s.logger.Info("inbound event routed", "event_id", env.EventID, "dedup_key", route.DedupKey, "has_text", strings.TrimSpace(route.Text) != "", "has_toast", strings.TrimSpace(route.ToastText) != "")
 
 	text := strings.TrimSpace(env.Text)
 	if env.Kind == model.EnvelopeKindMessage && strings.HasPrefix(text, "/help") {
@@ -74,6 +76,7 @@ func (s *Service) HandleInbound(ctx context.Context, env model.Envelope) (model.
 		if err := s.store.EnqueueForwardToCore(ctx, model.ForwardToCorePayload{Envelope: env}, dedupKey, s.cfg.WorkerMaxAttempts); err != nil {
 			return model.RouteResult{}, err
 		}
+		s.logger.Info("forward_to_core job enqueued", "event_id", env.EventID, "bot_id", env.BotID, "dedup_key", dedupKey)
 		s.metrics.IncJobsCreated()
 		return route, nil
 	}
@@ -131,6 +134,7 @@ func (s *Service) ProcessPendingJobs(ctx context.Context) error {
 }
 
 func (s *Service) processJob(ctx context.Context, job model.Job) error {
+	s.logger.Info("job processing started", "job_id", job.ID, "job_type", job.JobType, "attempts", job.Attempts, "max_attempts", job.MaxAttempts)
 	switch job.JobType {
 	case "send_message":
 		return s.processSendMessageJob(ctx, job)
@@ -164,6 +168,53 @@ func (s *Service) processSendMessageJob(ctx context.Context, job model.Job) erro
 	return s.store.MarkJobSucceeded(ctx, job.ID)
 }
 
+func (s *Service) processForwardToCoreText(ctx context.Context, job model.Job, env model.Envelope, botID string, sessionID string) error {
+	res, err := s.core.StreamReply(ctx, env, botID, sessionID)
+	if err != nil {
+		if job.Attempts+1 >= job.MaxAttempts {
+			s.metrics.IncJobsDead()
+			return s.store.MarkJobDead(ctx, job.ID, err.Error())
+		}
+		nextRunAt := time.Now().Add(s.cfg.WorkerRetryBaseInterval * time.Duration(1<<job.Attempts))
+		s.metrics.IncJobsRetried()
+		return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
+	}
+
+	if strings.TrimSpace(res.Text) != "" {
+		receiveID := env.ChatID
+		receiveIDType := "chat_id"
+		if receiveID == "" {
+			receiveID = env.SenderOpenID
+			receiveIDType = "open_id"
+		}
+
+		dedupKey := fmt.Sprintf("%s:core_reply", env.EventID)
+		err = s.store.EnqueueSendMessage(ctx, model.SendMessagePayload{
+			BotID:         botID,
+			ReceiveID:     receiveID,
+			ReceiveIDType: receiveIDType,
+			MsgType:       "text",
+			Content:       textMessageContent(res.Text),
+			UUID:          dedupKey,
+		}, dedupKey, s.cfg.WorkerMaxAttempts)
+		if err != nil {
+			if job.Attempts+1 >= job.MaxAttempts {
+				s.metrics.IncJobsDead()
+				return s.store.MarkJobDead(ctx, job.ID, err.Error())
+			}
+			nextRunAt := time.Now().Add(s.cfg.WorkerRetryBaseInterval * time.Duration(1<<job.Attempts))
+			s.metrics.IncJobsRetried()
+			return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
+		}
+
+		s.metrics.IncJobsCreated()
+	}
+
+	s.logger.Info("forward_to_core job completed", "job_id", job.ID, "event_id", env.EventID, "reply_chars", len(res.Text))
+	s.metrics.IncJobsSucceeded()
+	return s.store.MarkJobSucceeded(ctx, job.ID)
+}
+
 func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) error {
 	if s.core == nil {
 		s.metrics.IncJobsDead()
@@ -192,62 +243,8 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 		sessionID = env.EventID
 	}
 
-	if !s.cfg.LarkStreamingCardEnabled {
-		res, err := s.core.StreamReply(ctx, env, botID, sessionID)
-		if err != nil {
-			if job.Attempts+1 >= job.MaxAttempts {
-				s.metrics.IncJobsDead()
-				return s.store.MarkJobDead(ctx, job.ID, err.Error())
-			}
-			nextRunAt := time.Now().Add(s.cfg.WorkerRetryBaseInterval * time.Duration(1<<job.Attempts))
-			s.metrics.IncJobsRetried()
-			return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
-		}
-
-		if strings.TrimSpace(res.Text) != "" {
-			content, err := json.Marshal(map[string]string{"text": res.Text})
-			if err != nil {
-				if job.Attempts+1 >= job.MaxAttempts {
-					s.metrics.IncJobsDead()
-					return s.store.MarkJobDead(ctx, job.ID, err.Error())
-				}
-				nextRunAt := time.Now().Add(s.cfg.WorkerRetryBaseInterval * time.Duration(1<<job.Attempts))
-				s.metrics.IncJobsRetried()
-				return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
-			}
-
-			receiveID := env.ChatID
-			receiveIDType := "chat_id"
-			if receiveID == "" {
-				receiveID = env.SenderOpenID
-				receiveIDType = "open_id"
-			}
-
-			dedupKey := fmt.Sprintf("%s:core_reply", env.EventID)
-			err = s.store.EnqueueSendMessage(ctx, model.SendMessagePayload{
-				BotID:         botID,
-				ReceiveID:     receiveID,
-				ReceiveIDType: receiveIDType,
-				MsgType:       "text",
-				Content:       string(content),
-				UUID:          dedupKey,
-			}, dedupKey, s.cfg.WorkerMaxAttempts)
-			if err != nil {
-				if job.Attempts+1 >= job.MaxAttempts {
-					s.metrics.IncJobsDead()
-					return s.store.MarkJobDead(ctx, job.ID, err.Error())
-				}
-				nextRunAt := time.Now().Add(s.cfg.WorkerRetryBaseInterval * time.Duration(1<<job.Attempts))
-				s.metrics.IncJobsRetried()
-				return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
-			}
-
-			s.metrics.IncJobsCreated()
-		}
-
-		s.metrics.IncJobsSucceeded()
-		return s.store.MarkJobSucceeded(ctx, job.ID)
-	}
+	s.logger.Info("forward_to_core job started", "job_id", job.ID, "event_id", env.EventID, "bot_id", botID, "session_id", sessionID, "streaming_card", s.cfg.LarkStreamingCardEnabled)
+	return s.processForwardToCoreText(ctx, job, env, botID, sessionID)
 
 	receiveID := env.ChatID
 	receiveIDType := "chat_id"
@@ -267,24 +264,13 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 		title = strings.TrimSpace(title[:60])
 	}
 
-	cardJSON, err := dispatcher.BuildStreamingCard(fmt.Sprintf("# %s\n\n", title))
-	if err != nil {
-		if job.Attempts+1 >= job.MaxAttempts {
-			s.metrics.IncJobsDead()
-			return s.store.MarkJobDead(ctx, job.ID, err.Error())
-		}
-		nextRunAt := time.Now().Add(s.cfg.WorkerRetryBaseInterval * time.Duration(1<<job.Attempts))
-		s.metrics.IncJobsRetried()
-		return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
-	}
-
 	messageID, err := s.lark.CreateMessage(ctx, botID, model.SendMessagePayload{
 		BotID:         botID,
 		ReceiveID:     receiveID,
 		ReceiveIDType: receiveIDType,
-		MsgType:       "interactive",
-		Content:       cardJSON,
-		UUID:          fmt.Sprintf("mgw:%s:core_stream:%s", env.EventID, job.ID),
+		MsgType:       "text",
+		Content:       textMessageContent("生成中..."),
+		UUID:          streamingMessageUUID(env.EventID),
 	})
 	if err != nil {
 		if job.Attempts+1 >= job.MaxAttempts {
@@ -302,20 +288,18 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 
 	updateStreaming := func() error {
 		display := limitCardText(full.String(), s.cfg.LarkStreamingCardMaxBytes)
-		c, err := dispatcher.BuildStreamingCard(fmt.Sprintf("# %s\n\n%s", title, display))
-		if err != nil {
-			return err
+		if strings.TrimSpace(display) == "" {
+			display = "生成中..."
 		}
-		return s.lark.PatchMessage(ctx, botID, messageID, c)
+		return s.lark.PatchMessage(ctx, botID, messageID, textMessageContent(display))
 	}
 
 	updateFinal := func() error {
 		display := limitCardText(full.String(), s.cfg.LarkStreamingCardMaxBytes)
-		c, err := dispatcher.BuildFinalCard(fmt.Sprintf("# %s\n\n%s", title, display))
-		if err != nil {
-			return err
+		if strings.TrimSpace(display) == "" {
+			display = "无回复内容"
 		}
-		return s.lark.PatchMessage(ctx, botID, messageID, c)
+		return s.lark.PatchMessage(ctx, botID, messageID, textMessageContent(display))
 	}
 
 	err = s.core.StreamReplyChunks(ctx, env, botID, sessionID, func(delta string) error {
@@ -348,8 +332,28 @@ func (s *Service) processForwardToCoreJob(ctx context.Context, job model.Job) er
 		return s.store.MarkJobRetry(ctx, job.ID, err.Error(), nextRunAt)
 	}
 
+	s.logger.Info("forward_to_core streaming job completed", "job_id", job.ID, "event_id", env.EventID, "message_id", messageID, "reply_chars", full.Len())
 	s.metrics.IncJobsSucceeded()
 	return s.store.MarkJobSucceeded(ctx, job.ID)
+}
+
+func textMessageContent(text string) string {
+	payload, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return `{"text":""}`
+	}
+	return string(payload)
+}
+
+func streamingMessageUUID(eventID string) string {
+	id := strings.TrimSpace(eventID)
+	if len(id) > 24 {
+		id = id[:24]
+	}
+	if id == "" {
+		id = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return "mgw:" + id
 }
 
 func limitCardText(s string, maxBytes int) string {

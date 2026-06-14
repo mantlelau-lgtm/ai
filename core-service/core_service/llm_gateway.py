@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, AsyncIterator, Optional, Tuple
 
 import httpx
 
+from core_service.logging import logger
 from core_service.models import Usage
 
 
@@ -26,6 +28,18 @@ class LLMGatewayClient:
             "stream_options": {"include_usage": True},
         }
 
+        started = time.monotonic()
+        logger.info(
+            "llm gateway stream request started",
+            extra={
+                "request_id": headers.get("X-Request-Id", ""),
+                "trace_id": headers.get("X-Trace-Id", ""),
+                "llm_key_name": headers.get("X-LLM-Key", ""),
+                "model": model,
+                "messages": len(messages),
+                "url": self._url,
+            },
+        )
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             async with client.stream(
                 "POST",
@@ -33,6 +47,10 @@ class LLMGatewayClient:
                 headers={**headers, "Content-Type": "application/json", "Accept": "text/event-stream"},
                 json=req,
             ) as resp:
+                logger.info(
+                    "llm gateway stream response received",
+                    extra={"request_id": headers.get("X-Request-Id", ""), "status_code": resp.status_code},
+                )
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     line = line.strip()
@@ -42,6 +60,10 @@ class LLMGatewayClient:
                     if not data:
                         continue
                     if data == "[DONE]":
+                        logger.info(
+                            "llm gateway stream completed",
+                            extra={"request_id": headers.get("X-Request-Id", ""), "latency_ms": int((time.monotonic() - started) * 1000)},
+                        )
                         return
                     try:
                         payload = json.loads(data)

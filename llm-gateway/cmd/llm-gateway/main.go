@@ -12,6 +12,7 @@ import (
 
 	"llm-gateway/internal/config"
 	"llm-gateway/internal/httpapi"
+	"llm-gateway/internal/logging"
 	"llm-gateway/internal/provider"
 	"llm-gateway/internal/store"
 )
@@ -22,7 +23,13 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logFile, logOutput, err := logging.MultiOutput("logs", os.Stdout)
+	if err != nil {
+		log.Fatalf("init hourly log writer: %v", err)
+	}
+	defer logFile.Close()
+	logger := slog.New(slog.NewJSONHandler(logOutput, nil))
+	slog.SetDefault(logger)
 
 	pgStore, err := store.NewPostgresStore(cfg.DatabaseURL)
 	if err != nil {

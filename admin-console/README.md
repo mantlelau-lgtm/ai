@@ -37,6 +37,7 @@ npm run dev
 ## 环境变量
 
 - `DATABASE_URL`：后台配置数据库连接串
+- `ADMIN_CONSOLE_ENCRYPTION_SECRET`：用于统一加密/解密 LLM 密钥值
 - `MESSAGE_GATEWAY_HEALTH_URL`：message-gateway 健康检查地址
 - `CORE_SERVICE_HEALTH_URL`：core-service 健康检查地址
 - `LLM_GATEWAY_HEALTH_URL`：llm-gateway 健康检查地址
@@ -75,10 +76,22 @@ docker compose up -d --build admin-console
 管理后台会自动初始化以下表：
 
 - `admin_bots`
-- `admin_llm_keys`
-- `admin_llm_providers`
+- `admin_llm_credentials`
 - `admin_llm_models`
 - `admin_routing_settings`
 - `admin_routes`
+- `admin_agent_specs`
+- `admin_message_route_rules`
+
+其中 LLM 密钥管理已收敛为单表结构，统一维护：
+
+- 厂商名称
+- `base_url`
+- 调用类型
+- 密钥名称
+- 密钥值
+- 其他附属信息
+
+密钥值写库前会加密，读取运行时配置时再解密输出给下游服务。
 
 当前保存策略是单事务覆盖式写入，确保 bot / llm / routing 三组配置始终保持一致快照。

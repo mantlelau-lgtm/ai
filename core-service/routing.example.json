@@ -1,9 +1,0 @@
-{
-  "default_agent": "general",
-  "bots": [
-    {
-      "bot_id": "cli_xxx",
-      "agent_name": "general"
-    }
-  ]
-}

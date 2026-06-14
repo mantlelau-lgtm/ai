@@ -12,6 +12,7 @@ def _default_path(*parts: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     database_url: str
+    encryption_secret: str
     disable_db_startup: bool
     message_gateway_health_url: str
     core_service_health_url: str
@@ -24,6 +25,10 @@ def load_settings() -> Settings:
         database_url=os.getenv(
             "DATABASE_URL",
             "postgres://admin_console:admin_console_pwd@127.0.0.1:5432/admin_console?sslmode=disable",
+        ).strip(),
+        encryption_secret=os.getenv(
+            "ADMIN_CONSOLE_ENCRYPTION_SECRET",
+            "admin-console-local-secret-change-me",
         ).strip(),
         disable_db_startup=os.getenv("ADMIN_CONSOLE_DISABLE_DB_STARTUP", "").strip() == "1",
         message_gateway_health_url=os.getenv(

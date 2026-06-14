@@ -43,6 +43,7 @@ type CatalogModel struct {
 	OwnedBy                   string  `json:"owned_by,omitempty"`
 	PromptCostPer1KTokens     float64 `json:"prompt_cost_per_1k_tokens,omitempty"`
 	CompletionCostPer1KTokens float64 `json:"completion_cost_per_1k_tokens,omitempty"`
+	UnitPrice                 float64 `json:"unit_price,omitempty"`
 	Enabled                   bool    `json:"enabled"`
 }
 
@@ -180,6 +181,7 @@ func ApplyCatalogData(ctx context.Context, st store.Store, catalog Catalog) ([]g
 			OwnedBy:                   ownedBy,
 			PromptCostPer1KTokens:     item.PromptCostPer1KTokens,
 			CompletionCostPer1KTokens: item.CompletionCostPer1KTokens,
+			UnitPrice:                 item.UnitPrice,
 			Enabled:                   item.Enabled,
 		})
 	}

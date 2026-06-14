@@ -32,6 +32,7 @@ type Config struct {
 	WorkerBatchSize           int
 	WorkerMaxAttempts         int
 	WorkerRetryBaseInterval   time.Duration
+	WorkerJobTimeout          time.Duration
 }
 
 func Load() Config {
@@ -60,6 +61,7 @@ func Load() Config {
 		WorkerBatchSize:           getInt("WORKER_BATCH_SIZE", 10),
 		WorkerMaxAttempts:         getInt("WORKER_MAX_ATTEMPTS", 8),
 		WorkerRetryBaseInterval:   getDuration("WORKER_RETRY_BASE_INTERVAL", 5*time.Second),
+		WorkerJobTimeout:          getDuration("WORKER_JOB_TIMEOUT", 600*time.Second),
 	}
 }
 

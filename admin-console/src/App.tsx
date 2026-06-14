@@ -1,12 +1,12 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from '@/components/AppShell'
+import { AgentsPage } from '@/pages/AgentsPage'
 import { BotsPage } from '@/pages/BotsPage'
-import { LlmPage } from '@/pages/LlmPage'
+import { LlmKeysPage } from '@/pages/LlmKeysPage'
+import { LlmModelsPage } from '@/pages/LlmModelsPage'
 import { OverviewPage } from '@/pages/OverviewPage'
-import { PublishPage } from '@/pages/PublishPage'
-import { RoutingPage } from '@/pages/RoutingPage'
 import { useAdminStore } from '@/store/useAdminStore'
 
 export default function App() {
@@ -22,9 +22,11 @@ export default function App() {
         <Routes>
           <Route path="/" element={<OverviewPage />} />
           <Route path="/bots" element={<BotsPage />} />
-          <Route path="/llm" element={<LlmPage />} />
-          <Route path="/routing" element={<RoutingPage />} />
-          <Route path="/publish" element={<PublishPage />} />
+          <Route path="/llm" element={<Navigate to="/llm/models" replace />} />
+          <Route path="/llm/models" element={<LlmModelsPage />} />
+          <Route path="/llm/keys" element={<LlmKeysPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
     </BrowserRouter>

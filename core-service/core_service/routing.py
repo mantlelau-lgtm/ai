@@ -12,6 +12,7 @@ import httpx
 class AgentSpec:
     name: str
     type: str
+    key_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,12 @@ class RoutingConfig:
             if v:
                 return v
         return self.default_agent
+
+    def get_agent_key_name(self, agent_name: str) -> str:
+        spec = self.agents.get((agent_name or "").strip().lower())
+        if spec is None:
+            return ""
+        return spec.key_name
 
 
 def load_routing_config(path: str) -> Optional[RoutingConfig]:
@@ -80,7 +87,8 @@ def parse_routing_config(raw: dict[str, Any]) -> RoutingConfig:
         if not name:
             continue
         typ = str(item.get("type") or "").strip() or "custom"
-        agents[name] = AgentSpec(name=name, type=typ)
+        key_name = str(item.get("key_name") or "").strip()
+        agents[name] = AgentSpec(name=name, type=typ, key_name=key_name)
 
     if default_agent not in agents:
         agents[default_agent] = AgentSpec(name=default_agent, type="general")
@@ -151,6 +159,6 @@ def _routing_signature(config: Optional[RoutingConfig]) -> str:
     payload = {
         "default_agent": config.default_agent,
         "bots": [{"bot_id": bot_id, "agent_name": agent_name} for bot_id, agent_name in sorted(config.bot_to_agent.items())],
-        "agents": [{"name": agent.name, "type": agent.type} for agent in sorted(config.agents.values(), key=lambda item: item.name)],
+        "agents": [{"name": agent.name, "type": agent.type, "key_name": agent.key_name} for agent in sorted(config.agents.values(), key=lambda item: item.name)],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
