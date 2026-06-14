@@ -137,6 +137,42 @@ func TestEmbeddingsEndpoint(t *testing.T) {
 	}
 }
 
+func TestChatCompletionViaKeyNameHeader(t *testing.T) {
+	svc, memStore := newTestServer(t)
+
+	// 新增一个通过 key_name 路由的 provider
+	if err := memStore.UpsertProvider(context.Background(), gateway.ProviderConfig{
+		Name:    "deepseek-main",
+		Type:    "mock",
+		BaseURL: "https://api.deepseek.com",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed deepseek-main: %v", err)
+	}
+
+	// 通过 X-LLM-Key 头直接指定密钥名称路由
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{
+		"model":"deepseek-main",
+		"messages":[{"role":"user","content":"route by key"}]
+	}`))
+	req.Header.Set("X-LLM-Key", "deepseek-main")
+	rec := httptest.NewRecorder()
+
+	svc.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for key_name routing, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp gateway.ChatCompletionResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp.Choices[0].Message.Content, "deepseek-main") {
+		t.Fatalf("expected deepseek-main in reply, got: %s", resp.Choices[0].Message.Content)
+	}
+}
+
 func newTestServer(t *testing.T) (*Server, *store.MemoryStore) {
 	t.Helper()
 

@@ -17,11 +17,9 @@ Go 版 `message-gateway` 第一版实现，优先支持 `Lark Bot` 渠道。
 - `/help`：返回帮助文本
 - 其他任意文本：返回默认回声回复
 
-## 路由规则文件（JSON）
+## 路由规则
 
-默认内置路由只覆盖最小闭环；如果配置了 `ADMIN_CONFIG_BASE_URL`，会优先从 admin runtime 接口拉取路由规则并按轮询间隔热加载；如果未配置 admin，则回退使用 `ROUTE_RULES_PATH` 本地文件。
-
-示例文件见 [routes.example.json](file:///Users/zxz/AI/message-gateway/routes.example.json)。
+当前默认通过 `ADMIN_CONFIG_BASE_URL + ADMIN_MESSAGE_ROUTES_PATH` 从 `admin-console` 拉取路由规则，并按轮询间隔热加载。
 
 ## 下游转发（Core Service）
 
@@ -80,7 +78,6 @@ core service 需要提供一个“流式响应”的 HTTP 接口（路径由 `CO
 | `ADMIN_CONFIG_BASE_URL` | admin-console 基础地址，例如 `http://admin-console:50083` |
 | `ADMIN_MESSAGE_BOTS_PATH` | admin runtime bot 配置路径，默认 `/api/runtime/message-gateway/bots` |
 | `ADMIN_MESSAGE_ROUTES_PATH` | admin runtime 路由配置路径，默认 `/api/runtime/message-gateway/routes` |
-| `LARK_BOTS_PATH` | 多 bot 配置文件路径（JSON）；未配置 admin 时作为回退来源 |
 | `LARK_WS_ENABLED` | 是否启用“长连接模式”接收事件（true/false），默认 false |
 | `LARK_STREAMING_CARD_ENABLED` | 是否启用“端到端流式卡片更新”，默认 true |
 | `LARK_STREAMING_CARD_UPDATE_INTERVAL` | 卡片更新节流间隔（需满足单条消息 5QPS 限制），默认 `400ms` |
@@ -88,7 +85,6 @@ core service 需要提供一个“流式响应”的 HTTP 接口（路径由 `CO
 | `CORE_BASE_URL` | 下游 core service 基础地址（为空则不转发），例如 `http://core-service:8000` |
 | `CORE_STREAM_PATH` | core service 流式接收接口路径，默认 `/v1/messages:stream` |
 | `CORE_TIMEOUT` | core service 请求超时，默认 `60s` |
-| `ROUTE_RULES_PATH` | 路由规则 JSON 文件路径（为空则禁用），未配置 admin 时作为回退来源 |
 | `ROUTE_RULES_RELOAD_INTERVAL` | 路由规则热加载轮询间隔，默认 `2s` |
 | `WORKER_POLL_INTERVAL` | job 轮询间隔，默认 `2s` |
 | `WORKER_BATCH_SIZE` | 每次拉取 job 数量，默认 `10` |

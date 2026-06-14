@@ -149,7 +149,12 @@ func (a *App) RunWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			pollCtx, cancel := context.WithTimeout(ctx, a.cfg.WorkerJobTimeout)
+			if reset, err := a.store.ResetStaleRunningJobs(pollCtx, a.cfg.WorkerJobTimeout); err != nil {
+				a.logger.Error("reset stale running jobs failed", "error", err)
+			} else if reset > 0 {
+				a.logger.Warn("stale running jobs reset", "count", reset)
+			}
 			if err := a.service.ProcessPendingJobs(pollCtx); err != nil {
 				a.logger.Error("worker poll failed", "error", err)
 			}

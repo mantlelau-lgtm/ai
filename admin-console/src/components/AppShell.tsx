@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { Activity, Bot, GitBranch, Layers3, RefreshCw, ShieldCheck } from 'lucide-react'
+import { Activity, Bot, Cpu, KeyRound, Layers3, RefreshCw } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { cn } from '@/lib/utils'
@@ -9,9 +9,9 @@ import { useAdminStore } from '@/store/useAdminStore'
 const navItems = [
   { to: '/', label: '总览', icon: Activity, end: true },
   { to: '/bots', label: 'Bot', icon: Bot },
-  { to: '/llm', label: 'LLM', icon: Layers3 },
-  { to: '/routing', label: '路由', icon: GitBranch },
-  { to: '/publish', label: '发布', icon: ShieldCheck },
+  { to: '/llm/models', label: '模型管理', icon: Layers3 },
+  { to: '/llm/keys', label: '密钥管理', icon: KeyRound },
+  { to: '/agents', label: 'Agent', icon: Cpu },
 ]
 
 type AppShellProps = {
@@ -21,7 +21,9 @@ type AppShellProps = {
 export function AppShell({ children }: AppShellProps) {
   const hydrate = useAdminStore((state) => state.hydrate)
   const error = useAdminStore((state) => state.error)
+  const notice = useAdminStore((state) => state.notice)
   const clearError = useAdminStore((state) => state.clearError)
+  const clearNotice = useAdminStore((state) => state.clearNotice)
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#07111e] text-slate-100">
@@ -104,6 +106,15 @@ export function AppShell({ children }: AppShellProps) {
               <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
                 {error}
               </div>
+            ) : null}
+            {notice ? (
+              <button
+                type="button"
+                onClick={() => clearNotice()}
+                className="mt-4 block w-full rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-left text-sm text-emerald-100"
+              >
+                {notice}
+              </button>
             ) : null}
           </header>
           <div className="space-y-6">{children}</div>

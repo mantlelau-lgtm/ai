@@ -93,8 +93,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.DefaultTimeout)
 	defer cancel()
-	providerCfg, handler, upstreamModel, err := s.manager.ResolveProvider(ctx, req.Model)
+	providerCfg, handler, upstreamModel, err := s.resolveProvider(ctx, r, req.Model)
 	if err != nil {
+		s.logger.Error("llm request route failed", "model", req.Model, "key_name", r.Header.Get("X-LLM-Key"), "error", err)
 		writeError(w, http.StatusBadGateway, "provider_error", err.Error())
 		return
 	}
@@ -103,6 +104,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	startedAt := time.Now()
 	requestID := requestIDFromTime(startedAt)
+	s.logger.Info("llm chat request routed", "request_id", requestID, "key_name", r.Header.Get("X-LLM-Key"), "provider", providerCfg.Name, "model", req.Model, "upstream_model", upstreamModel, "stream", req.Stream, "messages", len(req.Messages))
 	if req.Stream {
 		s.handleStreamingChat(w, ctx, requestID, providerCfg, handler, req.Model, downstreamReq, startedAt)
 		return
@@ -128,9 +130,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		ErrorMessage:     errorMessage(callErr),
 	})
 	if callErr != nil {
+		s.logger.Error("llm chat request failed", "request_id", requestID, "provider", providerCfg.Name, "model", req.Model, "latency_ms", finishedAt.Sub(startedAt).Milliseconds(), "error", callErr)
 		writeError(w, http.StatusBadGateway, "provider_error", callErr.Error())
 		return
 	}
+	s.logger.Info("llm chat request completed", "request_id", requestID, "provider", providerCfg.Name, "model", req.Model, "prompt_tokens", response.Usage.PromptTokens, "completion_tokens", response.Usage.CompletionTokens, "total_tokens", response.Usage.TotalTokens, "cost", cost, "latency_ms", finishedAt.Sub(startedAt).Milliseconds())
 	w.Header().Set("X-Request-ID", requestID)
 	writeJSON(w, http.StatusOK, response)
 }
@@ -174,8 +178,10 @@ func (s *Server) handleStreamingChat(w http.ResponseWriter, ctx context.Context,
 	})
 
 	if err != nil {
-		s.logger.Error("stream chat failed", "request_id", requestID, "provider", providerCfg.Name, "error", err)
+		s.logger.Error("stream chat failed", "request_id", requestID, "provider", providerCfg.Name, "model", requestedModel, "latency_ms", finishedAt.Sub(startedAt).Milliseconds(), "error", err)
+		return
 	}
+	s.logger.Info("stream chat completed", "request_id", requestID, "provider", providerCfg.Name, "model", requestedModel, "prompt_tokens", usage.PromptTokens, "completion_tokens", usage.CompletionTokens, "total_tokens", usage.TotalTokens, "cost", cost, "latency_ms", finishedAt.Sub(startedAt).Milliseconds())
 }
 
 func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +202,7 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.DefaultTimeout)
 	defer cancel()
-	providerCfg, handler, upstreamModel, err := s.manager.ResolveProvider(ctx, req.Model)
+	providerCfg, handler, upstreamModel, err := s.resolveProvider(ctx, r, req.Model)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "provider_error", err.Error())
 		return
@@ -368,6 +374,14 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (s *Server) resolveProvider(ctx context.Context, r *http.Request, model string) (gateway.ProviderConfig, provider.Provider, string, error) {
+	keyName := strings.TrimSpace(r.Header.Get("X-LLM-Key"))
+	if keyName != "" {
+		return s.manager.ResolveProviderByName(ctx, keyName, model)
+	}
+	return s.manager.ResolveProvider(ctx, model)
+}
+
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	expected := "Bearer " + s.config.AdminToken
@@ -390,6 +404,9 @@ func (s *Server) estimateCost(model string, usage gateway.Usage) float64 {
 		return 0
 	}
 	if route.PromptCostPer1KTokens == 0 && route.CompletionCostPer1KTokens == 0 {
+		if route.UnitPrice > 0 {
+			return roundFloat(float64(usage.TotalTokens)/1000.0*route.UnitPrice, 9)
+		}
 		return 0
 	}
 	prompt := float64(usage.PromptTokens) / 1000.0 * route.PromptCostPer1KTokens

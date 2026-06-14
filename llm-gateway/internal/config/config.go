@@ -27,7 +27,7 @@ func Load() (Config, error) {
 		CatalogPath:               os.Getenv("CATALOG_PATH"),
 		AdminConfigBaseURL:        strings.TrimRight(os.Getenv("ADMIN_CONFIG_BASE_URL"), "/"),
 		AdminCatalogPath:          envOrDefault("ADMIN_LLM_CATALOG_PATH", "/api/runtime/llm-gateway/catalog"),
-		AdminConfigReloadInterval: 0,
+		AdminConfigReloadInterval: 30 * time.Second,
 		DefaultTimeout:            60 * time.Second,
 	}
 

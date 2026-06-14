@@ -14,14 +14,18 @@ from app.models import (
     BundlePayload,
     DiffResponse,
     LlmCatalog,
+    LlmCredential,
+    LlmModel,
     MessageRouteConfig,
     OverviewResponse,
+    RegisteredAgent,
     RoutingConfig,
     SaveResponse,
     ServiceStatus,
     ValidationResponse,
 )
 from app.repository import ConfigRepository, PostgresConfigRepository
+from app.services.crypto import SecretCryptor
 from app.services.config_store import build_bundle_diff, validate_bundle
 
 @asynccontextmanager
@@ -29,7 +33,7 @@ async def lifespan(app: FastAPI):
     if settings.disable_db_startup:
         yield
         return
-    repository = PostgresConfigRepository(settings.database_url)
+    repository = PostgresConfigRepository(settings.database_url, SecretCryptor(settings.encryption_secret))
     await repository.open()
     await repository.migrate()
     app.state.repository = repository
@@ -53,16 +57,16 @@ def repository_from_app(request: Request) -> ConfigRepository:
 async def get_overview(request: Request) -> OverviewResponse:
     repository = repository_from_app(request)
     bundle = await repository.load_bundle()
+    agents = await repository.load_registered_agents()
     return OverviewResponse(
         services=await _service_statuses(),
         database=await repository.database_meta(),
         tables=await repository.table_meta(),
         summary={
             "bot_count": len(bundle.bots.bots),
-            "provider_count": len(bundle.llm.providers),
+            "provider_count": len(bundle.llm.credentials),
             "model_count": len(bundle.llm.models),
-            "route_count": len(bundle.routing.bots),
-            "agent_count": len(bundle.routing.agents),
+            "agent_count": len(agents),
             "message_rule_count": len(bundle.message_routes.rules),
         },
     )
@@ -112,11 +116,81 @@ async def apply_config(payload: BundlePayload, request: Request) -> SaveResponse
     )
 
 
+@app.put("/api/llm/models/{model_id}")
+async def upsert_llm_model(model_id: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    model = LlmModel(**payload)
+    _validate_model_card(model)
+    try:
+        saved = await repository.upsert_llm_model(model, original_model_id=model_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"model": saved.model_dump(mode="json")}
+
+
+@app.post("/api/llm/models")
+async def create_llm_model(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    model = LlmModel(**payload)
+    _validate_model_card(model)
+    try:
+        saved = await repository.upsert_llm_model(model)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"model": saved.model_dump(mode="json")}
+
+
+@app.delete("/api/llm/models/{model_id}")
+async def delete_llm_model(model_id: str, request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    try:
+        deleted = await repository.delete_llm_model(model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"model_id {model_id} 不存在")
+    return {"deleted": True, "model_id": model_id}
+
+
+@app.put("/api/llm/keys/{key_name}")
+async def upsert_llm_key(key_name: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    credential = LlmCredential(**payload)
+    _validate_credential_card(credential)
+    try:
+        saved = await repository.upsert_llm_credential(credential, original_key_name=key_name)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"credential": saved.model_dump(mode="json")}
+
+
+@app.post("/api/llm/keys")
+async def create_llm_key(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    credential = LlmCredential(**payload)
+    _validate_credential_card(credential)
+    if not (await _is_key_name_available(repository, credential.key_name)):
+        raise HTTPException(status_code=400, detail=f"密钥名称已存在: {credential.key_name}")
+    try:
+        saved = await repository.upsert_llm_credential(credential)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"credential": saved.model_dump(mode="json")}
+
+
+@app.delete("/api/llm/keys/{key_name}")
+async def delete_llm_key(key_name: str, request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    deleted = await repository.delete_llm_credential(key_name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"key_name {key_name} 不存在")
+    return {"deleted": True, "key_name": key_name}
+
+
 @app.get("/api/runtime/llm-gateway/catalog", response_model=LlmCatalog)
 async def runtime_llm_catalog(request: Request) -> LlmCatalog:
     repository = repository_from_app(request)
-    bundle = await repository.load_bundle()
-    return bundle.llm
+    return await repository.load_runtime_catalog()
 
 
 @app.get("/api/runtime/message-gateway/bots")
@@ -136,8 +210,99 @@ async def runtime_message_gateway_routes(request: Request) -> MessageRouteConfig
 @app.get("/api/runtime/core-service/routing", response_model=RoutingConfig)
 async def runtime_core_service_routing(request: Request) -> RoutingConfig:
     repository = repository_from_app(request)
+    return await repository.load_runtime_routing()
+
+
+@app.get("/api/agents")
+async def list_agents(request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    agents = await repository.load_registered_agents()
+    return {"agents": [item.model_dump(mode="json") for item in agents]}
+
+
+@app.post("/api/agents/register")
+async def register_agents(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    items = payload.get("agents") or []
+    agents = [RegisteredAgent(**item) for item in items if isinstance(item, dict)]
+    count = await repository.register_agents(agents)
+    return {"registered": count}
+
+
+@app.put("/api/agents/{name}/key")
+async def update_agent_key(name: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    raw = payload.get("key_name")
+    if raw is None:
+        raw = payload.get("model_name")  # 兼容旧前端字段
+    key_name = (raw or "").strip()
+    if key_name:
+        valid_keys = await repository.list_credential_key_names()
+        if key_name not in valid_keys:
+            raise HTTPException(status_code=400, detail=f"key_name {key_name} 不存在于密钥列表")
+    updated = await repository.update_agent_key(name, key_name)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"agent {name} not found")
+    return {"agent": updated.model_dump(mode="json")}
+
+
+# 兼容旧路径，转发到 /api/agents/{name}/key
+@app.put("/api/agents/{name}/model")
+async def update_agent_model_legacy(name: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    return await update_agent_key(name, payload, request)
+
+
+@app.post("/api/llm/keys/set-default")
+async def set_default_key(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    key_name = (payload.get("key_name") or "").strip()
+    if not key_name:
+        raise HTTPException(status_code=400, detail="key_name 不能为空")
+    result = await repository.set_default_credential(key_name)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"key_name {key_name} 不存在")
+    return {"key_name": result, "is_default": True}
+
+
+@app.get("/api/llm/keys/check-name")
+async def check_key_name(name: str, request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    available = await _is_key_name_available(repository, name)
+    return {"name": name, "available": available}
+
+
+async def _is_key_name_available(repository: ConfigRepository, name: str) -> bool:
+    target = name.strip().lower()
+    if not target:
+        return False
     bundle = await repository.load_bundle()
-    return bundle.routing
+    return not any(item.key_name.strip().lower() == target for item in bundle.llm.credentials)
+
+
+def _validate_model_card(model: LlmModel) -> None:
+    if not model.name.strip():
+        raise HTTPException(status_code=400, detail="模型名称不能为空")
+    if not model.model_id.strip():
+        raise HTTPException(status_code=400, detail="模型ID不能为空")
+    if not model.provider.strip():
+        raise HTTPException(status_code=400, detail="厂商名称不能为空")
+    if model.prompt_cost_per_1k_tokens < 0 or model.completion_cost_per_1k_tokens < 0 or model.unit_price < 0:
+        raise HTTPException(status_code=400, detail="单价字段不能为负数")
+
+
+def _validate_credential_card(credential: LlmCredential) -> None:
+    if not credential.model_id.strip():
+        raise HTTPException(status_code=400, detail="密钥必须绑定模型ID")
+    if not credential.key_name.strip():
+        raise HTTPException(status_code=400, detail="密钥名称不能为空")
+    if not credential.key_value.strip():
+        raise HTTPException(status_code=400, detail="密钥值不能为空")
+    if not credential.base_url.strip():
+        raise HTTPException(status_code=400, detail="base_url不能为空")
+    if not credential.base_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="base_url 需要以 http:// 或 https:// 开头")
+    if credential.call_type.strip() not in {"stream", "non_stream"}:
+        raise HTTPException(status_code=400, detail="调用类型必须是 stream 或 non_stream")
 
 
 async def _service_statuses() -> list[ServiceStatus]:

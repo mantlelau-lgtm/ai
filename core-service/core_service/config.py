@@ -10,6 +10,7 @@ class Config:
         self.routing_reload_interval_seconds = float(os.getenv("ROUTING_RELOAD_INTERVAL_SECONDS", "2"))
         self.admin_config_base_url = os.getenv("ADMIN_CONFIG_BASE_URL", "").rstrip("/")
         self.admin_core_routing_path = os.getenv("ADMIN_CORE_ROUTING_PATH", "/api/runtime/core-service/routing")
+        self.admin_agents_register_path = os.getenv("ADMIN_AGENTS_REGISTER_PATH", "/api/agents/register")
         self.llm_base_url = os.getenv("LLM_BASE_URL", "http://localhost:8090").rstrip("/")
         self.llm_chat_path = os.getenv("LLM_CHAT_PATH", "/v1/chat/completions")
         self.default_model = os.getenv("DEFAULT_MODEL", "deepseek-v4-flash")

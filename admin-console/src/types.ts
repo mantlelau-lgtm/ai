@@ -3,56 +3,86 @@ export type BotConfig = {
   app_id: string
   app_secret: string
   open_base_url: string
+  agent_name: string
 }
 
 export type BotsFile = {
   bots: BotConfig[]
 }
 
-export type LlmKey = {
-  name: string
-  value_env: string
-}
-
-export type LlmProvider = {
-  name: string
+export type LlmCredential = {
+  vendor_name: string
+  key_name: string
+  key_value: string
   type: string
+  call_type: string
   base_url: string
-  api_key_from: string
+  model_id: string
+  model_name: string
+  metadata: Record<string, string>
   enabled: boolean
   is_default: boolean
 }
 
 export type LlmModel = {
   name: string
+  model_id: string
   provider: string
   upstream_model: string
   owned_by: string
   prompt_cost_per_1k_tokens: number
   completion_cost_per_1k_tokens: number
+  unit_price: number
   enabled: boolean
 }
 
-export type LlmCatalog = {
-  keys: LlmKey[]
-  providers: LlmProvider[]
+export type AdminLlmConfig = {
+  credentials: LlmCredential[]
   models: LlmModel[]
 }
 
-export type RoutingEntry = {
-  bot_id: string
-  agent_name: string
+export type RegisteredAgent = {
+  name: string
+  type: string
+  source: string
+  description: string
+  key_name: string
 }
 
-export type RoutingConfig = {
+export type AdminRoutingConfig = {
   default_agent: string
-  bots: RoutingEntry[]
+}
+
+export type MessageRouteMatch = {
+  kind: string
+  event_type: string
+  text_equals: string
+  text_prefix: string
+  action_name: string
+  action_tag: string
+}
+
+export type MessageRouteAction = {
+  reply_text: string
+  toast_text: string
+}
+
+export type MessageRouteRule = {
+  id: string
+  priority: number
+  match: MessageRouteMatch
+  action: MessageRouteAction
+}
+
+export type MessageRouteConfig = {
+  rules: MessageRouteRule[]
 }
 
 export type BundlePayload = {
   bots: BotsFile
-  llm: LlmCatalog
-  routing: RoutingConfig
+  llm: AdminLlmConfig
+  routing: AdminRoutingConfig
+  message_routes: MessageRouteConfig
 }
 
 export type ValidationBucket = {
@@ -71,6 +101,7 @@ export type DiffResponse = {
   bots_diff: string
   llm_diff: string
   routing_diff: string
+  message_routes_diff: string
 }
 
 export type SaveResponse = {
@@ -117,6 +148,7 @@ export type BundleResponse = {
 
 export const createEmptyBundle = (): BundlePayload => ({
   bots: { bots: [] },
-  llm: { keys: [], providers: [], models: [] },
-  routing: { default_agent: 'general', bots: [] },
+  llm: { credentials: [], models: [] },
+  routing: { default_agent: 'general' },
+  message_routes: { rules: [] },
 })

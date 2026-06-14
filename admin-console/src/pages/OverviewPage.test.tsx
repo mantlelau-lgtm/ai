@@ -10,10 +10,11 @@ afterEach(() => {
     loading: false,
     saving: false,
     error: '',
+    notice: '',
     overview: null,
-    diff: null,
     validation: null,
     bundle: createEmptyBundle(),
+    agents: [],
     storage: { engine: 'postgresql', database: '' },
   })
 })
@@ -47,7 +48,8 @@ describe('OverviewPage', () => {
           bot_count: 2,
           provider_count: 1,
           model_count: 3,
-          route_count: 2,
+          agent_count: 2,
+          message_rule_count: 0,
         },
       },
       storage: {

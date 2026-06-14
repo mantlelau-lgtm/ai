@@ -56,6 +56,35 @@ func TestCoreClientStreamReplyChunksSSE(t *testing.T) {
 	}
 }
 
+func TestCoreClientStreamReplyChunksSSECumulativeText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"type\":\"delta\",\"text\":\"你好\",\"done\":false}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"delta\",\"text\":\"你好世界\",\"done\":false}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"done\",\"text\":\"你好世界\",\"done\":true}\n\n"))
+	}))
+	defer srv.Close()
+
+	c := &CoreClient{
+		baseURL:    srv.URL,
+		streamPath: "/v1/messages:stream",
+		client:     &http.Client{Timeout: 2 * time.Second},
+	}
+
+	var got strings.Builder
+	err := c.StreamReplyChunks(context.Background(), model.Envelope{EventID: "e1"}, "bot1", "s1", func(text string) error {
+		got.WriteString(text)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StreamReplyChunks error: %v", err)
+	}
+	if got.String() != "你好世界" {
+		t.Fatalf("unexpected text: %q", got.String())
+	}
+}
+
 func TestCoreClientStreamReplyChunksNDJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages:stream" {

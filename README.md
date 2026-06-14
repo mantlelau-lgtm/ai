@@ -31,22 +31,15 @@
 2. 为各服务创建本地环境文件
 
 ```bash
+cp admin-console/.env.local.example admin-console/.env.local
 cp llm-gateway/.env.local.example llm-gateway/.env.local
 cp core-service/.env.local.example core-service/.env.local
 cp message-gateway/.env.local.example message-gateway/.env.local
 ```
 
-3. 配置 core-service 路由（bot -> agent，agent -> model）
+3. 通过 `admin-console` 统一管理 bot / llm / routing / message routes 配置
 
-```bash
-cp core-service/routing.example.json core-service/routing.json
-```
-
-并在 `core-service/.env.local` 中设置：
-
-```text
-ROUTING_CONFIG_PATH=/Users/zxz/AI/core-service/routing.json
-```
+运行时配置已收敛到本地 PostgreSQL 中的 `admin_console` 数据库，不再依赖仓库内 JSON 配置文件。
 
 4. 启动全部本地服务
 

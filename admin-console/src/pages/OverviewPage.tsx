@@ -13,9 +13,9 @@ export function OverviewPage() {
 
   const stats = [
     { label: 'Bot 数量', value: overview?.summary.bot_count ?? 0 },
-    { label: 'Provider 数量', value: overview?.summary.provider_count ?? 0 },
+    { label: '密码 / Provider', value: overview?.summary.provider_count ?? 0 },
     { label: '模型数量', value: overview?.summary.model_count ?? 0 },
-    { label: '路由映射', value: overview?.summary.route_count ?? 0 },
+    { label: 'Agent 数量', value: overview?.summary.agent_count ?? 0 },
   ]
 
   return (

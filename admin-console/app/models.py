@@ -10,10 +10,42 @@ class BotConfig(BaseModel):
     app_id: str = ""
     app_secret: str = ""
     open_base_url: str = ""
+    agent_name: str = ""
 
 
 class BotsFile(BaseModel):
     bots: List[BotConfig] = Field(default_factory=list)
+
+
+class LlmCredential(BaseModel):
+    vendor_name: str = ""
+    base_url: str = ""
+    type: str = "openai"
+    call_type: str = "non_stream"
+    key_name: str = ""
+    key_value: str = ""
+    model_id: str = ""
+    model_name: str = ""
+    metadata: Dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
+    is_default: bool = False
+
+
+class LlmModel(BaseModel):
+    name: str = ""
+    model_id: str = ""
+    provider: str = ""
+    upstream_model: str = ""
+    owned_by: str = ""
+    prompt_cost_per_1k_tokens: float = 0
+    completion_cost_per_1k_tokens: float = 0
+    unit_price: float = 0
+    enabled: bool = True
+
+
+class AdminLlmConfig(BaseModel):
+    credentials: List[LlmCredential] = Field(default_factory=list)
+    models: List[LlmModel] = Field(default_factory=list)
 
 
 class LlmKey(BaseModel):
@@ -27,21 +59,9 @@ class LlmProvider(BaseModel):
     type: str = "openai"
     base_url: str = ""
     api_key: str = ""
-    api_key_from: str = ""
-    model_prefixes: List[str] = Field(default_factory=list)
     enabled: bool = True
     is_default: bool = False
     metadata: Dict[str, str] = Field(default_factory=dict)
-
-
-class LlmModel(BaseModel):
-    name: str = ""
-    provider: str = ""
-    upstream_model: str = ""
-    owned_by: str = ""
-    prompt_cost_per_1k_tokens: float = 0
-    completion_cost_per_1k_tokens: float = 0
-    enabled: bool = True
 
 
 class LlmCatalog(BaseModel):
@@ -58,12 +78,25 @@ class RoutingEntry(BaseModel):
 class AgentSpec(BaseModel):
     name: str = ""
     type: str = "custom"
+    key_name: str = ""
+
+
+class RegisteredAgent(BaseModel):
+    name: str = ""
+    type: str = "custom"
+    source: str = "core-service"
+    description: str = ""
+    key_name: str = ""
 
 
 class RoutingConfig(BaseModel):
     default_agent: str = ""
     bots: List[RoutingEntry] = Field(default_factory=list)
     agents: List[AgentSpec] = Field(default_factory=list)
+
+
+class AdminRoutingConfig(BaseModel):
+    default_agent: str = ""
 
 
 class MessageRouteMatch(BaseModel):
@@ -93,8 +126,8 @@ class MessageRouteConfig(BaseModel):
 
 class BundlePayload(BaseModel):
     bots: BotsFile = Field(default_factory=BotsFile)
-    llm: LlmCatalog = Field(default_factory=LlmCatalog)
-    routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    llm: AdminLlmConfig = Field(default_factory=AdminLlmConfig)
+    routing: AdminRoutingConfig = Field(default_factory=AdminRoutingConfig)
     message_routes: MessageRouteConfig = Field(default_factory=MessageRouteConfig)
 
 

@@ -14,5 +14,6 @@ core-service/.env.local
 message-gateway/.env.local
 
 # Local runtime files
-core-service/.venv/
+**/logs/
+**/.venv/
 core-service/routing.json

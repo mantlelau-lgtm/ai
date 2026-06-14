@@ -96,6 +96,10 @@ func BuildFinalCard(content string) (string, error) {
 }
 
 func buildCard(content string, streaming bool, summary string) (string, error) {
+	body := strings.TrimSpace(toLarkMarkdown(limitTables(stripTitle(content))))
+	if body == "" {
+		body = "生成中..."
+	}
 	card := map[string]any{
 		"config": buildCardConfig(streaming, summary),
 		"header": buildCardHeader(extractTitle(content)),
@@ -104,7 +108,7 @@ func buildCard(content string, streaming bool, summary string) (string, error) {
 				"tag": "div",
 				"text": map[string]any{
 					"tag":     "lark_md",
-					"content": toLarkMarkdown(limitTables(stripTitle(content))),
+					"content": body,
 				},
 			},
 		},
