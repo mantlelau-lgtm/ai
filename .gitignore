@@ -3,7 +3,6 @@
 # Local-only workspaces and generated docs
 .tmp/
 deploy/
-docs/
 
 # Local environment files
 deploy/docker/.env
