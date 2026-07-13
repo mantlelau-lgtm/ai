@@ -22,6 +22,8 @@ from app.models import (
     RoutingConfig,
     SaveResponse,
     ServiceStatus,
+    ToolDescriptor,
+    ToolRegistryReport,
     ValidationResponse,
 )
 from app.repository import ConfigRepository, PostgresConfigRepository
@@ -250,6 +252,48 @@ async def update_agent_key(name: str, payload: dict[str, Any], request: Request)
 @app.put("/api/agents/{name}/model")
 async def update_agent_model_legacy(name: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
     return await update_agent_key(name, payload, request)
+
+
+@app.get("/api/tools")
+async def list_tools(request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    tools = await repository.list_tool_registry()
+    return {"tools": [item.model_dump(mode="json", by_alias=True) for item in tools]}
+
+
+@app.post("/api/tools/report")
+async def report_tools(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    report = ToolRegistryReport.model_validate(payload)
+    service = report.service.strip() or "core-service"
+    sources: list[str] = []
+    seen: set[str] = set()
+    for tool in report.tools:
+        src = (tool.source or "").strip() or "core"
+        tool.source = src
+        tool.service = service
+        if src not in seen:
+            seen.add(src)
+            sources.append(src)
+    count = await repository.replace_tool_registry_for_sources(service, sources, list(report.tools))
+    return {"received": count, "sources": sources}
+
+
+@app.get("/api/agents/{name}/tools")
+async def list_agent_tools(name: str, request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    tools = await repository.list_agent_tool_bindings(name)
+    return {"agent": name, "tools": tools}
+
+
+@app.put("/api/agents/{name}/tools")
+async def update_agent_tools(name: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    repository = repository_from_app(request)
+    tools = payload.get("tools") or []
+    if not isinstance(tools, list):
+        raise HTTPException(status_code=400, detail="tools 必须是数组")
+    cleaned = await repository.replace_agent_tool_bindings(name, [str(item) for item in tools])
+    return {"agent": name, "tools": cleaned}
 
 
 @app.post("/api/llm/keys/set-default")

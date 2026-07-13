@@ -7,6 +7,7 @@ import type {
   LlmModel,
   OverviewResponse,
   RegisteredAgent,
+  ToolDescriptor,
   ValidationResponse,
 } from '@/types'
 import { createEmptyBundle } from '@/types'
@@ -20,6 +21,7 @@ type AdminState = {
   overview: OverviewResponse | null
   bundle: BundlePayload
   agents: RegisteredAgent[]
+  tools: ToolDescriptor[]
   validation: ValidationResponse | null
   storage: {
     engine: string
@@ -35,6 +37,7 @@ type AdminState = {
   saveCredentialCard: (credential: LlmCredential, originalKeyName?: string) => Promise<boolean>
   deleteCredentialCard: (keyName: string) => Promise<boolean>
   updateAgentKey: (name: string, keyName: string) => Promise<boolean>
+  updateAgentTools: (name: string, tools: string[]) => Promise<boolean>
   clearError: () => void
   clearNotice: () => void
 }
@@ -47,6 +50,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   overview: null,
   bundle: createEmptyBundle(),
   agents: [],
+  tools: [],
   validation: null,
   storage: {
     engine: 'postgresql',
@@ -55,16 +59,18 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   hydrate: async () => {
     set({ loading: true, error: '' })
     try {
-      const [overview, bundleResponse, agentsResponse] = await Promise.all([
+      const [overview, bundleResponse, agentsResponse, toolsResponse] = await Promise.all([
         adminApi.getOverview(),
         adminApi.getBundle(),
         adminApi.listAgents(),
+        adminApi.listTools(),
       ])
       set({
         loading: false,
         overview,
         bundle: bundleResponse.data,
         agents: agentsResponse.agents,
+        tools: toolsResponse.tools,
         storage: bundleResponse.storage,
       })
     } catch (error) {
@@ -99,10 +105,11 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     set({ saving: true, error: '', notice: '' })
     try {
       const result = await adminApi.apply(get().bundle)
-      const [overview, bundleResponse, agentsResponse] = await Promise.all([
+      const [overview, bundleResponse, agentsResponse, toolsResponse] = await Promise.all([
         adminApi.getOverview(),
         adminApi.getBundle(),
         adminApi.listAgents(),
+        adminApi.listTools(),
       ])
       set({
         saving: false,
@@ -110,6 +117,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
         overview,
         bundle: bundleResponse.data,
         agents: agentsResponse.agents,
+        tools: toolsResponse.tools,
         storage: bundleResponse.storage,
         notice: message || '已保存并生效',
       })
@@ -194,6 +202,24 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       set({
         saving: false,
         error: error instanceof Error ? error.message : '保存 Agent 密钥失败',
+      })
+      return false
+    }
+  },
+  updateAgentTools: async (name, tools) => {
+    set({ saving: true, error: '', notice: '' })
+    try {
+      const result = await adminApi.updateAgentTools(name, tools)
+      set((state) => ({
+        saving: false,
+        notice: `Agent ${result.agent} 已更新工具白名单`,
+        agents: state.agents.map((item) => (item.name === result.agent ? { ...item, tools: result.tools } : item)),
+      }))
+      return true
+    } catch (error) {
+      set({
+        saving: false,
+        error: error instanceof Error ? error.message : '保存 Agent 工具失败',
       })
       return false
     }

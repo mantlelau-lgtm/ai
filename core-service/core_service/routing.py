@@ -13,6 +13,7 @@ class AgentSpec:
     name: str
     type: str
     key_name: str = ""
+    tools: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,12 @@ class RoutingConfig:
         if spec is None:
             return ""
         return spec.key_name
+
+    def get_agent_tools(self, agent_name: str) -> list[str]:
+        spec = self.agents.get((agent_name or "").strip().lower())
+        if spec is None or spec.tools is None:
+            return []
+        return [item for item in spec.tools if item]
 
 
 def load_routing_config(path: str) -> Optional[RoutingConfig]:
@@ -88,10 +95,11 @@ def parse_routing_config(raw: dict[str, Any]) -> RoutingConfig:
             continue
         typ = str(item.get("type") or "").strip() or "custom"
         key_name = str(item.get("key_name") or "").strip()
-        agents[name] = AgentSpec(name=name, type=typ, key_name=key_name)
+        tools = [str(tool).strip() for tool in (item.get("tools") or []) if str(tool).strip()]
+        agents[name] = AgentSpec(name=name, type=typ, key_name=key_name, tools=tools)
 
     if default_agent not in agents:
-        agents[default_agent] = AgentSpec(name=default_agent, type="general")
+        agents[default_agent] = AgentSpec(name=default_agent, type="general", tools=[])
 
     return RoutingConfig(default_agent=default_agent, bot_to_agent=bot_to_agent, agents=agents)
 
@@ -159,6 +167,9 @@ def _routing_signature(config: Optional[RoutingConfig]) -> str:
     payload = {
         "default_agent": config.default_agent,
         "bots": [{"bot_id": bot_id, "agent_name": agent_name} for bot_id, agent_name in sorted(config.bot_to_agent.items())],
-        "agents": [{"name": agent.name, "type": agent.type, "key_name": agent.key_name} for agent in sorted(config.agents.values(), key=lambda item: item.name)],
+        "agents": [
+            {"name": agent.name, "type": agent.type, "key_name": agent.key_name, "tools": agent.tools or []}
+            for agent in sorted(config.agents.values(), key=lambda item: item.name)
+        ],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)

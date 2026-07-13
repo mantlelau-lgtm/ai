@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { Activity, Bot, Cpu, KeyRound, Layers3, RefreshCw } from 'lucide-react'
+import { Activity, Bot, Cpu, KeyRound, Layers3, RefreshCw, TrendingUp } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { cn } from '@/lib/utils'
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/llm/models', label: '模型管理', icon: Layers3 },
   { to: '/llm/keys', label: '密钥管理', icon: KeyRound },
   { to: '/agents', label: 'Agent', icon: Cpu },
+  { to: '/sirius', label: 'Sirius', icon: TrendingUp },
 ]
 
 type AppShellProps = {

@@ -15,10 +15,35 @@ class LLMGatewayClient:
         self._url = base_url.rstrip("/") + chat_path
         self._timeout = timeout_seconds
 
+    async def chat_once(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        headers: dict[str, str],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any = "auto",
+    ) -> dict[str, Any]:
+        req: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+        }
+        if tools:
+            req["tools"] = tools
+            req["tool_choice"] = tool_choice
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                self._url,
+                headers={**headers, "Content-Type": "application/json"},
+                json=req,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def stream_chat_events(
         self,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         headers: dict[str, str],
     ) -> AsyncIterator[Tuple[str, Optional[Usage]]]:
         req: dict[str, Any] = {
@@ -91,8 +116,8 @@ class LLMGatewayClient:
                         yield "", usage_obj
 
 
-def build_chat_messages(system_prompt: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
-    items: list[dict[str, str]] = []
+def build_chat_messages(system_prompt: str, history: list[dict[str, str]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
     if system_prompt.strip():
         items.append({"role": "system", "content": system_prompt})
     items.extend(history)

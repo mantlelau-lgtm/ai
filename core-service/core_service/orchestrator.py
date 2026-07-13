@@ -61,8 +61,8 @@ class Orchestrator:
             return
 
         bot_id = header_bot_id.strip()
-        agent_name = ""
-        if self._routing is not None and self._routing.current is not None:
+        agent_name = header_agent_name.strip().lower()
+        if not agent_name and self._routing is not None and self._routing.current is not None:
             agent_name = self._routing.current.lookup_agent_name(bot_id).strip().lower()
             if not agent_name:
                 yield self._sse(StreamChunk(type="start", request_id=request_id, task_id=task_id))
@@ -70,12 +70,14 @@ class Orchestrator:
                 yield self._sse(StreamChunk(type="done", text=msg, done=True, request_id=request_id, task_id=task_id, usage=Usage()))
                 yield b"data: [DONE]\n\n"
                 return
-        else:
-            agent_name = header_agent_name.strip() or "general"
+        if not agent_name:
+            agent_name = "general"
         agent = self._registry.get(agent_name)
         llm_key_name = ""
+        allowed_tools: list[str] = []
         if self._routing is not None and self._routing.current is not None:
             llm_key_name = self._routing.current.get_agent_key_name(agent_name)
+            allowed_tools = self._routing.current.get_agent_tools(agent_name)
         logger.info(
             "agent resolved for message stream",
             extra={
@@ -85,6 +87,7 @@ class Orchestrator:
                 "bot_id": bot_id,
                 "agent_name": agent_name,
                 "llm_key_name": llm_key_name,
+                "allowed_tools_count": len(allowed_tools),
             },
         )
         user_id = header_user_id.strip() or envelope.sender_user_id
@@ -123,6 +126,7 @@ class Orchestrator:
             history=history,
             envelope=envelope,
             llm_key_name=llm_key_name,
+            allowed_tools=allowed_tools,
         )
 
         yield self._sse(StreamChunk(type="start", request_id=request_id, task_id=task_id))

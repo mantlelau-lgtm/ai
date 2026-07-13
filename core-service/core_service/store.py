@@ -50,8 +50,18 @@ class Store:
               completed_at TIMESTAMPTZ NULL
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS sirius_audit_events (
+              id BIGSERIAL PRIMARY KEY,
+              event_type TEXT NOT NULL,
+              payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
             "CREATE INDEX IF NOT EXISTS idx_core_messages_conversation_id ON core_messages(conversation_id, id DESC)",
             "CREATE INDEX IF NOT EXISTS idx_core_tasks_conversation_id ON core_tasks(conversation_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_sirius_audit_events_created_at ON sirius_audit_events(created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_sirius_audit_events_event_type ON sirius_audit_events(event_type)",
         ]
         async with self._pool.acquire() as conn:
             for stmt in statements:

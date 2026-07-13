@@ -28,6 +28,7 @@ from app.models import (
     RoutingConfig,
     RoutingEntry,
     TableMeta,
+    ToolDescriptor,
 )
 from app.services.crypto import SecretCryptor
 
@@ -128,6 +129,27 @@ CREATE TABLE IF NOT EXISTS admin_message_route_rules (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS admin_tool_registry (
+    id BIGSERIAL PRIMARY KEY,
+    service TEXT NOT NULL,
+    source TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    schema_json TEXT NOT NULL DEFAULT '{}',
+    reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(service, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_tool_registry_source ON admin_tool_registry(service, source);
+
+CREATE TABLE IF NOT EXISTS admin_agent_tool_bindings (
+    id BIGSERIAL PRIMARY KEY,
+    agent_name TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(agent_name, tool_name)
+);
 """
 
 
@@ -143,6 +165,16 @@ class ConfigRepository(Protocol):
     async def register_agents(self, agents: list[RegisteredAgent]) -> int: ...
 
     async def update_agent_key(self, name: str, key_name: str) -> RegisteredAgent | None: ...
+
+    async def list_tool_registry(self) -> list[ToolDescriptor]: ...
+
+    async def replace_tool_registry_for_sources(
+        self, service: str, sources: list[str], tools: list[ToolDescriptor]
+    ) -> int: ...
+
+    async def list_agent_tool_bindings(self, agent_name: str) -> list[str]: ...
+
+    async def replace_agent_tool_bindings(self, agent_name: str, tools: list[str]) -> list[str]: ...
 
     async def list_credential_key_names(self) -> list[str]: ...
 
@@ -388,9 +420,25 @@ class PostgresConfigRepository:
                 ORDER BY name
                 """
             )
+            binding_rows = await conn.fetch(
+                """
+                SELECT agent_name, tool_name
+                FROM admin_agent_tool_bindings
+                ORDER BY agent_name, tool_name
+                """
+            )
+
+        bindings: dict[str, list[str]] = {}
+        for binding in binding_rows:
+            bindings.setdefault(binding["agent_name"], []).append(binding["tool_name"])
 
         agents = [
-            AgentSpec(name=row["name"], type=row["agent_type"], key_name=row["key_name"])
+            AgentSpec(
+                name=row["name"],
+                type=row["agent_type"],
+                key_name=row["key_name"],
+                tools=list(bindings.get(row["name"], [])),
+            )
             for row in agent_rows
         ]
         default_agent = (routing_settings["default_agent"] if routing_settings else "general") or "general"
@@ -412,6 +460,16 @@ class PostgresConfigRepository:
                 ORDER BY name
                 """
             )
+            binding_rows = await conn.fetch(
+                """
+                SELECT agent_name, tool_name
+                FROM admin_agent_tool_bindings
+                ORDER BY agent_name, tool_name
+                """
+            )
+        bindings: dict[str, list[str]] = {}
+        for binding in binding_rows:
+            bindings.setdefault(binding["agent_name"], []).append(binding["tool_name"])
         return [
             RegisteredAgent(
                 name=row["name"],
@@ -419,6 +477,7 @@ class PostgresConfigRepository:
                 source=row["source"],
                 description=row["description"],
                 key_name=row["key_name"],
+                tools=list(bindings.get(row["name"], [])),
             )
             for row in rows
         ]
@@ -479,6 +538,10 @@ class PostgresConfigRepository:
                 normalized,
                 target_key,
             )
+            tool_rows = await conn.fetch(
+                "SELECT tool_name FROM admin_agent_tool_bindings WHERE agent_name = $1 ORDER BY tool_name",
+                normalized,
+            )
         if not row:
             return None
         return RegisteredAgent(
@@ -487,7 +550,104 @@ class PostgresConfigRepository:
             source=row["source"],
             description=row["description"],
             key_name=row["key_name"],
+            tools=[item["tool_name"] for item in tool_rows],
         )
+
+    async def list_tool_registry(self) -> list[ToolDescriptor]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT service, source, name, description, schema_json, reported_at
+                FROM admin_tool_registry
+                ORDER BY service, source, name
+                """
+            )
+        return [
+            ToolDescriptor(
+                service=row["service"],
+                source=row["source"],
+                name=row["name"],
+                description=row["description"],
+                tool_schema=json.loads(row["schema_json"] or "{}"),
+                reported_at=row["reported_at"].isoformat(),
+            )
+            for row in rows
+        ]
+
+    async def replace_tool_registry_for_sources(
+        self, service: str, sources: list[str], tools: list[ToolDescriptor]
+    ) -> int:
+        if not service:
+            return 0
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                if sources:
+                    await conn.execute(
+                        "DELETE FROM admin_tool_registry WHERE service = $1 AND source = ANY($2::text[])",
+                        service,
+                        sources,
+                    )
+                count = 0
+                for tool in tools:
+                    name = tool.name.strip()
+                    if not name:
+                        continue
+                    await conn.execute(
+                        """
+                        INSERT INTO admin_tool_registry(service, source, name, description, schema_json, reported_at)
+                        VALUES ($1, $2, $3, $4, $5, NOW())
+                        ON CONFLICT (service, name) DO UPDATE
+                        SET source = EXCLUDED.source,
+                            description = EXCLUDED.description,
+                            schema_json = EXCLUDED.schema_json,
+                            reported_at = NOW()
+                        """,
+                        service,
+                        (tool.source or "").strip() or "core",
+                        name,
+                        (tool.description or "").strip(),
+                        json.dumps(tool.tool_schema or {}, ensure_ascii=False),
+                    )
+                    count += 1
+        return count
+
+    async def list_agent_tool_bindings(self, agent_name: str) -> list[str]:
+        normalized = (agent_name or "").strip().lower()
+        if not normalized:
+            return []
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT tool_name FROM admin_agent_tool_bindings WHERE agent_name = $1 ORDER BY tool_name",
+                normalized,
+            )
+        return [row["tool_name"] for row in rows]
+
+    async def replace_agent_tool_bindings(self, agent_name: str, tools: list[str]) -> list[str]:
+        normalized = (agent_name or "").strip().lower()
+        if not normalized:
+            return []
+        cleaned = sorted({tool.strip() for tool in tools if tool and tool.strip()})
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM admin_agent_tool_bindings WHERE agent_name = $1",
+                    normalized,
+                )
+                for tool in cleaned:
+                    await conn.execute(
+                        """
+                        INSERT INTO admin_agent_tool_bindings(agent_name, tool_name)
+                        VALUES ($1, $2)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        normalized,
+                        tool,
+                    )
+        return cleaned
 
     async def list_credential_key_names(self) -> list[str]:
         pool = self._pool()

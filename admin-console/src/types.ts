@@ -47,6 +47,16 @@ export type RegisteredAgent = {
   source: string
   description: string
   key_name: string
+  tools: string[]
+}
+
+export type ToolDescriptor = {
+  service: string
+  source: string
+  name: string
+  description: string
+  schema: Record<string, unknown>
+  reported_at: string
 }
 
 export type AdminRoutingConfig = {

@@ -11,6 +11,8 @@ type ChatCompletionRequest struct {
 	TopP          *float64           `json:"top_p,omitempty"`
 	User          string             `json:"user,omitempty"`
 	Metadata      map[string]string  `json:"metadata,omitempty"`
+	Tools         []ChatTool         `json:"tools,omitempty"`
+	ToolChoice    interface{}        `json:"tool_choice,omitempty"`
 	StreamOptions *ChatStreamOptions `json:"stream_options,omitempty"`
 }
 
@@ -19,8 +21,27 @@ type ChatStreamOptions struct {
 }
 
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string         `json:"role"`
+	Content    string         `json:"content,omitempty"`
+	Name       string         `json:"name,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []ChatToolCall `json:"tool_calls,omitempty"`
+}
+
+type ChatTool struct {
+	Type     string                 `json:"type"`
+	Function map[string]interface{} `json:"function"`
+}
+
+type ChatToolCall struct {
+	ID       string               `json:"id,omitempty"`
+	Type     string               `json:"type,omitempty"`
+	Function ChatToolCallFunction `json:"function"`
+}
+
+type ChatToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type ChatCompletionResponse struct {
@@ -54,8 +75,9 @@ type ChatChunkChoice struct {
 }
 
 type ChatMessageDelta struct {
-	Role    string `json:"role,omitempty"`
-	Content string `json:"content,omitempty"`
+	Role      string         `json:"role,omitempty"`
+	Content   string         `json:"content,omitempty"`
+	ToolCalls []ChatToolCall `json:"tool_calls,omitempty"`
 }
 
 type EmbeddingRequest struct {

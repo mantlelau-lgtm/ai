@@ -20,6 +20,15 @@ class Config:
             "SYSTEM_PROMPT",
             "You are the core orchestrator of Tracer 2.0. Provide concise, helpful responses.",
         )
+        self.sirius_market_data_provider = os.getenv("SIRIUS_MARKET_DATA_PROVIDER", "mock").strip().lower()
+        self.sirius_tushare_token = os.getenv("SIRIUS_TUSHARE_TOKEN", "").strip()
+        self.sirius_tushare_base_url = os.getenv("SIRIUS_TUSHARE_BASE_URL", "http://api.tushare.pro").rstrip("/")
+        self.sequoia_x_base_url = os.getenv("SEQUOIA_X_BASE_URL", "http://127.0.0.1:8800").rstrip("/")
+        self.sequoia_x_default_repo = os.getenv("SEQUOIA_X_DEFAULT_REPO", "sequoia-x").strip()
+        self.sequoia_x_request_timeout = float(os.getenv("SEQUOIA_X_REQUEST_TIMEOUT", "60"))
+        self.tools_report_path = os.getenv("ADMIN_TOOLS_REPORT_PATH", "/api/tools/report")
+        self.tools_report_interval_seconds = float(os.getenv("TOOLS_REPORT_INTERVAL_SECONDS", "30"))
+        self.tools_report_service_name = os.getenv("TOOLS_REPORT_SERVICE_NAME", "core-service")
 
         if not self.database_url:
             raise ValueError("DATABASE_URL is required")

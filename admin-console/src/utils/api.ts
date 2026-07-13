@@ -6,6 +6,7 @@ import type {
   LlmModel,
   OverviewResponse,
   SaveResponse,
+  ToolDescriptor,
   ValidationResponse,
 } from '@/types'
 
@@ -40,11 +41,17 @@ export const adminApi = {
   getBundle: () => requestJson<BundleResponse>('/api/config/bundle'),
   listAgents: () =>
     requestJson<{
-      agents: { name: string; type: string; source: string; description: string; key_name: string }[]
+      agents: { name: string; type: string; source: string; description: string; key_name: string; tools: string[] }[]
     }>('/api/agents'),
+  listTools: () => requestJson<{ tools: ToolDescriptor[] }>('/api/tools'),
+  updateAgentTools: (name: string, tools: string[]) =>
+    requestJson<{ agent: string; tools: string[] }>(`/api/agents/${encodeURIComponent(name)}/tools`, {
+      method: 'PUT',
+      body: JSON.stringify({ tools }),
+    }),
   updateAgentKey: (name: string, keyName: string) =>
     requestJson<{
-      agent: { name: string; type: string; source: string; description: string; key_name: string }
+      agent: { name: string; type: string; source: string; description: string; key_name: string; tools: string[] }
     }>(`/api/agents/${encodeURIComponent(name)}/key`, {
       method: 'PUT',
       body: JSON.stringify({ key_name: keyName }),

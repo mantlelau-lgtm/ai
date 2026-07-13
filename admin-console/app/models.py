@@ -79,6 +79,7 @@ class AgentSpec(BaseModel):
     name: str = ""
     type: str = "custom"
     key_name: str = ""
+    tools: List[str] = Field(default_factory=list)
 
 
 class RegisteredAgent(BaseModel):
@@ -87,6 +88,25 @@ class RegisteredAgent(BaseModel):
     source: str = "core-service"
     description: str = ""
     key_name: str = ""
+    tools: List[str] = Field(default_factory=list)
+
+
+class ToolDescriptor(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    service: str = "core-service"
+    source: str = ""
+    name: str = ""
+    description: str = ""
+    tool_schema: Dict[str, object] = Field(default_factory=dict, alias="schema")
+    reported_at: str = ""
+
+
+class ToolRegistryReport(BaseModel):
+    service: str = "core-service"
+    instance_id: str = ""
+    tools: List[ToolDescriptor] = Field(default_factory=list)
+    reported_at: str = ""
 
 
 class RoutingConfig(BaseModel):

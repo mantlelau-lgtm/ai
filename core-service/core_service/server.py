@@ -15,6 +15,7 @@ from core_service.models import Envelope
 from core_service.orchestrator import Orchestrator
 from core_service.routing import RoutingManager, load_routing_config, load_routing_config_from_url
 from core_service.store import Store
+from sirius.compliance.audit import configure_audit_pool
 
 
 app = FastAPI()
@@ -26,6 +27,7 @@ async def _startup() -> None:
     pool = await asyncpg.create_pool(dsn=cfg.database_url, min_size=1, max_size=10)
     store = Store(pool)
     await store.migrate()
+    configure_audit_pool(pool)
     registry = AgentRegistry()
     routing_url = ""
     routing_cfg = None
@@ -41,7 +43,9 @@ async def _startup() -> None:
     app.state.routing = routing
     app.state.orchestrator = Orchestrator(store, registry, routing)
     app.state.routing_task = _start_routing_reload_task(routing)
+    app.state.tools_report_task = _start_tools_report_task(registry)
     await _register_agents_with_admin(registry)
+    await _report_tools_with_admin(registry)
 
 
 @app.on_event("shutdown")
@@ -49,6 +53,10 @@ async def _shutdown() -> None:
     task = getattr(app.state, "routing_task", None)
     if task is not None:
         task.cancel()
+    tools_task = getattr(app.state, "tools_report_task", None)
+    if tools_task is not None:
+        tools_task.cancel()
+    configure_audit_pool(None)
     pool: asyncpg.Pool = app.state.pool
     await pool.close()
 
@@ -63,6 +71,16 @@ async def healthz() -> dict[str, str]:
 @app.get("/metrics")
 async def metrics_endpoint() -> PlainTextResponse:
     return PlainTextResponse(metrics.render(), media_type="text/plain; version=0.0.4")
+
+
+@app.get("/admin/tools")
+async def admin_tools(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+    x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
+) -> dict[str, Any]:
+    _require_admin(authorization, x_admin_token)
+    registry: AgentRegistry = app.state.agent_registry
+    return {"data": [spec.to_openai_schema() for spec in registry.tool_specs()]}
 
 
 @app.post("/v1/messages:stream")
@@ -85,7 +103,7 @@ async def messages_stream(
         extra={
             "request_id": x_request_id or envelope.event_id,
             "event_id": envelope.event_id,
-            "bot_id": x_bot_id or envelope.bot_id,
+            "bot_id": x_bot_id or "",
             "chat_id": x_chat_id or envelope.chat_id,
             "agent_header": x_agent_name or "",
         },
@@ -172,6 +190,52 @@ def _start_routing_reload_task(manager: RoutingManager) -> Optional[asyncio.Task
             await asyncio.sleep(cfg.routing_reload_interval_seconds)
 
     return asyncio.create_task(_loop())
+
+
+def _start_tools_report_task(registry: AgentRegistry) -> Optional[asyncio.Task]:
+    if not cfg.admin_config_base_url.strip() or cfg.tools_report_interval_seconds <= 0:
+        return None
+
+    async def _loop() -> None:
+        while True:
+            await asyncio.sleep(cfg.tools_report_interval_seconds)
+            await _report_tools_with_admin(registry)
+
+    return asyncio.create_task(_loop())
+
+
+async def _report_tools_with_admin(registry: AgentRegistry) -> None:
+    if not cfg.admin_config_base_url:
+        return
+    import aiohttp
+
+    url = f"{cfg.admin_config_base_url}{cfg.tools_report_path}"
+    tools = []
+    for tool in registry.tool_items():
+        schema = tool.spec.to_openai_schema()
+        tools.append(
+            {
+                "service": cfg.tools_report_service_name,
+                "source": tool.source or "core",
+                "name": tool.spec.name,
+                "description": tool.spec.description,
+                "schema": schema,
+            }
+        )
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json={"service": cfg.tools_report_service_name, "tools": tools},
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as response:
+                if response.status >= 400:
+                    body = await response.text()
+                    logger.error("tools report failed", extra={"status": response.status, "body": body})
+                else:
+                    logger.info("tools reported with admin", extra={"count": len(tools)})
+    except Exception as exc:
+        logger.exception("tools report error", exc_info=exc)
 
 
 async def _register_agents_with_admin(registry: AgentRegistry) -> None:
