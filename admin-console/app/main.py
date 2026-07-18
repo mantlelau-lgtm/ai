@@ -19,10 +19,8 @@ from app.models import (
     MessageRouteConfig,
     OverviewResponse,
     RegisteredAgent,
-    RoutingConfig,
     SaveResponse,
     ServiceStatus,
-    ToolDescriptor,
     ToolRegistryReport,
     ValidationResponse,
 )
@@ -114,7 +112,7 @@ async def apply_config(payload: BundlePayload, request: Request) -> SaveResponse
         saved=True,
         validation=validation,
         updated_resources=updated_resources,
-        needs_restart=["message-gateway", "llm-gateway", "core-service"],
+        needs_restart=["message-gateway", "llm-gateway"],
     )
 
 
@@ -209,12 +207,6 @@ async def runtime_message_gateway_routes(request: Request) -> MessageRouteConfig
     return bundle.message_routes
 
 
-@app.get("/api/runtime/core-service/routing", response_model=RoutingConfig)
-async def runtime_core_service_routing(request: Request) -> RoutingConfig:
-    repository = repository_from_app(request)
-    return await repository.load_runtime_routing()
-
-
 @app.get("/api/agents")
 async def list_agents(request: Request) -> dict[str, Any]:
     repository = repository_from_app(request)
@@ -265,7 +257,7 @@ async def list_tools(request: Request) -> dict[str, Any]:
 async def report_tools(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     repository = repository_from_app(request)
     report = ToolRegistryReport.model_validate(payload)
-    service = report.service.strip() or "core-service"
+    service = report.service.strip() or "agent-runtime"
     sources: list[str] = []
     seen: set[str] = set()
     for tool in report.tools:
@@ -352,7 +344,6 @@ def _validate_credential_card(credential: LlmCredential) -> None:
 async def _service_statuses() -> list[ServiceStatus]:
     services = [
         ("message-gateway", settings.message_gateway_health_url),
-        ("core-service", settings.core_service_health_url),
         ("llm-gateway", settings.llm_gateway_health_url),
     ]
     results: list[ServiceStatus] = []

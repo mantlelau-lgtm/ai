@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"message-gateway/internal/config"
 	"message-gateway/internal/model"
@@ -18,6 +19,8 @@ import (
 )
 
 type LarkClient struct {
+	cfg           config.Config
+	mu            sync.RWMutex
 	clients       map[string]*lark.Client
 	defaultBotID  string
 	defaultClient *lark.Client
@@ -41,27 +44,45 @@ type larkBotsFile struct {
 
 func NewLarkClient(cfg config.Config) *LarkClient {
 	bots := LoadLarkBotCredentials(cfg)
+	clients, defaultBotID, defaultClient := buildLarkClients(cfg, bots)
+	return &LarkClient{
+		cfg:           cfg,
+		clients:       clients,
+		defaultBotID:  defaultBotID,
+		defaultClient: defaultClient,
+	}
+}
+
+func buildLarkClients(cfg config.Config, bots []LarkBotCredential) (map[string]*lark.Client, string, *lark.Client) {
 	clients := map[string]*lark.Client{}
 	defaultBotID := strings.TrimSpace(cfg.LarkAppID)
 	for _, b := range bots {
 		botID := strings.TrimSpace(b.BotID)
-		if botID == "" {
-			botID = strings.TrimSpace(b.AppID)
+		appID := strings.TrimSpace(b.AppID)
+		if appID == "" {
+			appID = botID
 		}
-		if botID == "" || strings.TrimSpace(b.AppSecret) == "" {
+		if botID == "" {
+			botID = appID
+		}
+		if appID == "" || strings.TrimSpace(b.AppSecret) == "" {
 			continue
 		}
 		openBaseURL := strings.TrimSpace(b.OpenBaseURL)
 		if openBaseURL == "" {
 			openBaseURL = cfg.LarkOpenBaseURL
 		}
-		clients[botID] = lark.NewClient(
-			botID,
+		client := lark.NewClient(
+			appID,
 			b.AppSecret,
 			lark.WithOpenBaseUrl(openBaseURL),
 			lark.WithEnableTokenCache(true),
 			lark.WithLogLevel(larkcore.LogLevelInfo),
 		)
+		clients[appID] = client
+		if botID != "" {
+			clients[botID] = client
+		}
 	}
 
 	defaultClient := clients[defaultBotID]
@@ -83,8 +104,7 @@ func NewLarkClient(cfg config.Config) *LarkClient {
 		clients[strings.TrimSpace(cfg.LarkAppID)] = defaultClient
 		defaultBotID = strings.TrimSpace(cfg.LarkAppID)
 	}
-
-	return &LarkClient{clients: clients, defaultBotID: defaultBotID, defaultClient: defaultClient}
+	return clients, defaultBotID, defaultClient
 }
 
 func LoadLarkBotCredentials(cfg config.Config) []LarkBotCredential {
@@ -128,7 +148,7 @@ func LoadLarkBotCredentials(cfg config.Config) []LarkBotCredential {
 		}
 		out = append(out, LarkBotCredential{
 			BotID:       botID,
-			AppID:       botID,
+			AppID:       appID,
 			AppSecret:   strings.TrimSpace(it.AppSecret),
 			OpenBaseURL: strings.TrimSpace(it.OpenBaseURL),
 		})
@@ -175,15 +195,52 @@ func loadLarkBotCredentialsFromURL(url string) ([]LarkBotCredential, error) {
 
 func (c *LarkClient) clientFor(botID string) (*lark.Client, error) {
 	key := strings.TrimSpace(botID)
+	c.mu.RLock()
 	if key != "" {
 		if v := c.clients[key]; v != nil {
+			c.mu.RUnlock()
 			return v, nil
 		}
 	}
-	if c.defaultClient != nil {
-		return c.defaultClient, nil
+	defaultClient := c.defaultClient
+	c.mu.RUnlock()
+
+	if c.reloadClients() {
+		c.mu.RLock()
+		if key != "" {
+			if v := c.clients[key]; v != nil {
+				c.mu.RUnlock()
+				return v, nil
+			}
+		}
+		defaultClient = c.defaultClient
+		c.mu.RUnlock()
+	}
+	if defaultClient != nil {
+		return defaultClient, nil
 	}
 	return nil, fmt.Errorf("lark bot not configured")
+}
+
+func (c *LarkClient) reloadClients() bool {
+	if strings.TrimSpace(c.cfg.AdminConfigBaseURL) == "" {
+		return false
+	}
+	bots := LoadLarkBotCredentials(c.cfg)
+	if len(bots) == 0 {
+		return false
+	}
+	clients, defaultBotID, defaultClient := buildLarkClients(c.cfg, bots)
+	if len(clients) == 0 {
+		return false
+	}
+	c.mu.Lock()
+	c.clients = clients
+	c.defaultBotID = defaultBotID
+	c.defaultClient = defaultClient
+	c.mu.Unlock()
+	slog.Default().Info("lark clients reloaded", "count", len(clients), "default_bot_id", defaultBotID)
+	return true
 }
 
 func (c *LarkClient) SendMessage(ctx context.Context, botID string, payload model.SendMessagePayload) error {

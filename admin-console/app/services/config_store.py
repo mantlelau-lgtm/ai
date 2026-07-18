@@ -135,7 +135,7 @@ def validate_bundle(bundle: BundlePayload) -> ValidationResponse:
             default_credential_count += 1
 
     if default_credential_count == 0 and bundle.llm.credentials:
-        add("llm", "warnings", "当前没有默认密钥，core-service 未传 key 时将无法路由。")
+        add("llm", "warnings", "当前没有默认密钥，未显式指定 key 的 agent 请求将无法路由。")
     if default_credential_count > 1:
         add("llm", "errors", "默认密钥只能有一个。")
 

@@ -47,6 +47,7 @@ export type RegisteredAgent = {
   source: string
   description: string
   key_name: string
+  is_default: boolean
   tools: string[]
 }
 

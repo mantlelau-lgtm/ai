@@ -23,9 +23,6 @@ type CoreClient struct {
 }
 
 func NewCoreClient(cfg config.Config) *CoreClient {
-	if strings.TrimSpace(cfg.CoreBaseURL) == "" {
-		return nil
-	}
 	return &CoreClient{
 		baseURL:    strings.TrimRight(cfg.CoreBaseURL, "/"),
 		streamPath: cfg.CoreStreamPath,
@@ -41,8 +38,12 @@ type CoreStreamResult struct {
 }
 
 func (c *CoreClient) StreamReply(ctx context.Context, env model.Envelope, botID, sessionID string) (CoreStreamResult, error) {
+	return c.StreamReplyToBaseURL(ctx, "", env, botID, sessionID)
+}
+
+func (c *CoreClient) StreamReplyToBaseURL(ctx context.Context, baseURL string, env model.Envelope, botID, sessionID string) (CoreStreamResult, error) {
 	var b strings.Builder
-	err := c.StreamReplyChunks(ctx, env, botID, sessionID, func(delta string) error {
+	err := c.StreamReplyChunksToBaseURL(ctx, baseURL, env, botID, sessionID, func(delta string) error {
 		if delta != "" {
 			b.WriteString(delta)
 		}
@@ -55,10 +56,13 @@ func (c *CoreClient) StreamReply(ctx context.Context, env model.Envelope, botID,
 }
 
 func (c *CoreClient) StreamReplyChunks(ctx context.Context, env model.Envelope, botID, sessionID string, onDelta func(text string) error) error {
+	return c.StreamReplyChunksToBaseURL(ctx, "", env, botID, sessionID, onDelta)
+}
+
+func (c *CoreClient) StreamReplyChunksToBaseURL(ctx context.Context, baseURL string, env model.Envelope, botID, sessionID string, onDelta func(text string) error) error {
 	if c == nil {
 		return fmt.Errorf("core client not configured")
 	}
-
 	body, err := json.Marshal(map[string]interface{}{
 		"envelope": env,
 	})
@@ -66,7 +70,15 @@ func (c *CoreClient) StreamReplyChunks(ctx context.Context, env model.Envelope, 
 		return err
 	}
 
-	url := c.baseURL + c.streamPath
+	targetBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if targetBaseURL == "" {
+		targetBaseURL = c.baseURL
+	}
+	if targetBaseURL == "" {
+		return fmt.Errorf("core base url not configured")
+	}
+
+	url := targetBaseURL + c.streamPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err

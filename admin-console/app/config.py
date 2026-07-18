@@ -15,7 +15,6 @@ class Settings:
     encryption_secret: str
     disable_db_startup: bool
     message_gateway_health_url: str
-    core_service_health_url: str
     llm_gateway_health_url: str
     static_dir: str
 
@@ -24,7 +23,7 @@ def load_settings() -> Settings:
     return Settings(
         database_url=os.getenv(
             "DATABASE_URL",
-            "postgres://admin_console:admin_console_pwd@127.0.0.1:5432/admin_console?sslmode=disable",
+            "postgres://postgres:postgres123@127.0.0.1:5432/admin_console?sslmode=disable",
         ).strip(),
         encryption_secret=os.getenv(
             "ADMIN_CONSOLE_ENCRYPTION_SECRET",
@@ -34,10 +33,6 @@ def load_settings() -> Settings:
         message_gateway_health_url=os.getenv(
             "MESSAGE_GATEWAY_HEALTH_URL",
             "http://127.0.0.1:50082/admin/healthz",
-        ).strip(),
-        core_service_health_url=os.getenv(
-            "CORE_SERVICE_HEALTH_URL",
-            "http://127.0.0.1:50081/healthz",
         ).strip(),
         llm_gateway_health_url=os.getenv(
             "LLM_GATEWAY_HEALTH_URL",

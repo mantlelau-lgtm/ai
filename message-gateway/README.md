@@ -8,7 +8,12 @@ Go 版 `message-gateway` 第一版实现，优先支持 `Lark Bot` 渠道。
 - 处理 `url_verification` 验证请求
 - 解析 `im.message.receive_v1` 文本消息
 - 基于 `event_id` 写入 `inbound_event` 做去重
-- 基于 `job` 表异步发送 Lark 文本回复
+- 收到消息时调用 `agent-center` 拉取可用 agent 列表
+- 支持 bot 绑定 agent 直达转发
+- 支持未绑定 bot 通过 LLM 动态选择 agent
+- 支持默认 agent fallback：当 bot 绑定和 LLM 选择都未命中时，自动回退到注册中心中标记为 `is_default=true` 的 agent
+- 只有在连默认 agent 也不存在时，才直接回复“agent 不可用”
+- 基于 `job` 表异步转发到 agent 服务并回写 Lark 文本回复
 - 暴露 `GET /admin/healthz` 和 `GET /admin/metrics`
 - 提供 DLQ 基础运维接口：`GET /admin/jobs/dead`、`POST /admin/jobs/{job_id}/replay`
 
@@ -21,18 +26,24 @@ Go 版 `message-gateway` 第一版实现，优先支持 `Lark Bot` 渠道。
 
 当前默认通过 `ADMIN_CONFIG_BASE_URL + ADMIN_MESSAGE_ROUTES_PATH` 从 `admin-console` 拉取路由规则，并按轮询间隔热加载。
 
-## 下游转发（Core Service）
+## Agent 选择与转发
 
-当配置 `CORE_BASE_URL` 后，网关会把入站事件写入 `forward_to_core` job，由 worker 调用 core service 获取回复，并使用“流式卡片”边生成边更新到 Lark（`im.message.patch`）。
+收到消息后，网关会按下面顺序处理：
 
-如需回退到“聚合后一次性文本回写”，可设置 `LARK_STREAMING_CARD_ENABLED=false`。
+1. 调用 `agent-center` 的运行时接口获取当前可用 agent 列表
+2. 如果当前 bot 在 `admin-console` 中配置了 `agent_name`，直接转发到这个 agent
+3. 如果 bot 没有绑定 agent，则调用 `llm-gateway` 在“非默认 agent”中选择最合适的 agent
+4. 如果 bot 绑定未命中、LLM 未选中或没有非默认 agent，则 fallback 到注册中心中的默认 agent
+5. 如果最终仍没有可用 agent，直接回复用户“当前没有可用的 agent，请稍后再试。”
+
+agent 服务当前复用既有流式协议，接口路径由 `CORE_STREAM_PATH` 控制，默认 `/v1/messages:stream`。
 
 ## 端到端流式（Lark 流式卡片）
 
 网关的端到端流式更新是通过“先发卡片、再持续更新同一条消息”的策略实现的：
 
 1. worker 创建一条 `msg_type=interactive` 的卡片消息（流式模式，`config.streaming_mode=true`，并显式设置 `config.update_multi=true`）
-2. worker 调用 core service 的流式接口，边读边累积输出
+2. worker 调用下游回复服务的流式接口，边读边累积输出
 3. worker 按节流频率（`LARK_STREAMING_CARD_UPDATE_INTERVAL`）对同一条消息执行 `im.message.patch`，把最新累计内容写回卡片
 4. core stream 结束后，worker 再 `patch` 一次，将卡片切为“最终态”（非流式模式）
 
@@ -43,9 +54,7 @@ Go 版 `message-gateway` 第一版实现，优先支持 `Lark Bot` 渠道。
 - 卡片/富文本消息请求体大小限制为 30KB，网关用 `LARK_STREAMING_CARD_MAX_BYTES` 做展示截断，避免无限增长导致 patch 失败
 - 当前实现不会持久化 `message_id`：worker 崩溃/重启后无法继续更新同一条历史卡片，会在重试时重新发一条新卡片
 
-bot -> agent 的映射与 llm model 的选择由 core-service 统一管理：message-gateway 只负责把 `X-Bot-Id` 等上下文 header 透传给 core-service，由 core-service 在内部完成 agent 路由与模型路由。
-
-core service 需要提供一个“流式响应”的 HTTP 接口（路径由 `CORE_STREAM_PATH` 控制），网关发起请求时会带上这些 header：
+agent 服务需要提供一个“流式响应”的 HTTP 接口。当前代码中的 `CORE_STREAM_PATH` / `CORE_TIMEOUT` 变量名保留为兼容字段，但实际语义已经是“agent runtime 调用协议”。网关发起请求时会带上这些 header：
 
 | Header | 说明 |
 |--------|------|
@@ -78,13 +87,21 @@ core service 需要提供一个“流式响应”的 HTTP 接口（路径由 `CO
 | `ADMIN_CONFIG_BASE_URL` | admin-console 基础地址，例如 `http://admin-console:50083` |
 | `ADMIN_MESSAGE_BOTS_PATH` | admin runtime bot 配置路径，默认 `/api/runtime/message-gateway/bots` |
 | `ADMIN_MESSAGE_ROUTES_PATH` | admin runtime 路由配置路径，默认 `/api/runtime/message-gateway/routes` |
+| `AGENT_CENTER_BASE_URL` | agent-center 基础地址，例如 `http://agent-center:9999` |
+| `AGENT_CENTER_AGENTS_PATH` | agent-center 可用 agent 列表接口，默认 `/api/runtime/agents` |
+| `LLM_GATEWAY_BASE_URL` | llm-gateway 基础地址，例如 `http://llm-gateway:50080` |
+| `LLM_GATEWAY_CHAT_PATH` | LLM 选择所调用的 chat completion 接口，默认 `/v1/chat/completions` |
+| `AGENT_SELECTOR_MODEL` | 用于动态选择 agent 的模型名 |
+| `AGENT_SELECTOR_KEY_NAME` | 可选，动态选择时附带的 `X-LLM-Key` |
+| `AGENT_SELECTOR_TIMEOUT` | 动态选择请求超时，默认 `20s` |
+| `AGENT_UNAVAILABLE_REPLY_TEXT` | 没有可用 agent 时回复给用户的文案 |
 | `LARK_WS_ENABLED` | 是否启用“长连接模式”接收事件（true/false），默认 false |
 | `LARK_STREAMING_CARD_ENABLED` | 是否启用“端到端流式卡片更新”，默认 true |
 | `LARK_STREAMING_CARD_UPDATE_INTERVAL` | 卡片更新节流间隔（需满足单条消息 5QPS 限制），默认 `400ms` |
 | `LARK_STREAMING_CARD_MAX_BYTES` | 卡片展示内容最大字节数（超出会截断展示末尾），默认 `20480` |
-| `CORE_BASE_URL` | 下游 core service 基础地址（为空则不转发），例如 `http://core-service:8000` |
-| `CORE_STREAM_PATH` | core service 流式接收接口路径，默认 `/v1/messages:stream` |
-| `CORE_TIMEOUT` | core service 请求超时，默认 `60s` |
+| `CORE_BASE_URL` | 兼容旧配置保留字段，当前不会参与 agent 选择 |
+| `CORE_STREAM_PATH` | agent 服务流式接收接口路径，默认 `/v1/messages:stream` |
+| `CORE_TIMEOUT` | agent 服务请求超时，默认 `60s` |
 | `ROUTE_RULES_RELOAD_INTERVAL` | 路由规则热加载轮询间隔，默认 `2s` |
 | `WORKER_POLL_INTERVAL` | job 轮询间隔，默认 `2s` |
 | `WORKER_BATCH_SIZE` | 每次拉取 job 数量，默认 `10` |
@@ -93,12 +110,7 @@ core service 需要提供一个“流式响应”的 HTTP 接口（路径由 `CO
 
 ## 本地运行
 
-先确保共享基础设施已启动：
-
-```bash
-cd /Users/zxz/AI/infra/storage
-docker compose up -d
-```
+先确保本机 PostgreSQL 已启动，并且 `DATABASE_URL` 指向本地可访问的数据库。
 
 再启动服务：
 

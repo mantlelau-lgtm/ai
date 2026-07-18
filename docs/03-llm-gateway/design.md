@@ -6,13 +6,13 @@
 
 ### 1.1 服务定位
 
-- 面向上游业务（core-service、工具服务、离线任务等）：提供统一的 OpenAI 风格 API
+- 面向上游业务（agent runtime、工具服务、离线任务等）：提供统一的 OpenAI 风格 API
 - 面向下游 Provider：通过 `base_url + api_key` 方式调用（优先假设为 OpenAI-compatible API；非兼容 Provider 通过适配层接入）
 - 面向运维/平台：提供模型/密钥/路由规则的管理接口与统计查询接口
 
-### 1.2 与 core-service 的边界
+### 1.2 与上游编排服务的边界
 
-- core-service 负责对话编排、工具调用、记忆与任务状态
+- 上游编排服务负责对话编排、工具调用、记忆与任务状态
 - llm-gateway 只负责“模型调用相关”的能力：路由、重试、限流、计费/usage、密钥与模型治理、可观测
 
 ## 2. 核心能力
@@ -226,4 +226,3 @@ llm-gateway/
 │   └── metrics/
 └── README.md
 ```
-

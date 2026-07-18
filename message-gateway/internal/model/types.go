@@ -45,7 +45,10 @@ type SendMessagePayload struct {
 }
 
 type ForwardToCorePayload struct {
-	Envelope Envelope `json:"envelope"`
+	Envelope        Envelope `json:"envelope"`
+	AgentName       string   `json:"agent_name,omitempty"`
+	AgentRuntimeURL string   `json:"agent_runtime_url,omitempty"`
+	ResolvedBy      string   `json:"resolved_by,omitempty"`
 }
 
 type Job struct {

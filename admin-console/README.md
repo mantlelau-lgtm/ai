@@ -7,7 +7,6 @@
 - `GET /api/runtime/llm-gateway/catalog`
 - `GET /api/runtime/message-gateway/bots`
 - `GET /api/runtime/message-gateway/routes`
-- `GET /api/runtime/core-service/routing`
 
 ## 本地开发
 
@@ -39,7 +38,6 @@ npm run dev
 - `DATABASE_URL`：后台配置数据库连接串
 - `ADMIN_CONSOLE_ENCRYPTION_SECRET`：用于统一加密/解密 LLM 密钥值
 - `MESSAGE_GATEWAY_HEALTH_URL`：message-gateway 健康检查地址
-- `CORE_SERVICE_HEALTH_URL`：core-service 健康检查地址
 - `LLM_GATEWAY_HEALTH_URL`：llm-gateway 健康检查地址
 - `ADMIN_CONSOLE_DISABLE_DB_STARTUP=1`：测试场景下跳过真实数据库初始化
 
@@ -69,7 +67,7 @@ docker compose up -d --build admin-console
 
 后台默认暴露在 `http://localhost:50083`。
 
-如果你的本地 `infra-postgres` 使用的是旧 volume，需要先确保 `admin_console` 数据库和 `admin_console` 用户已经存在；否则请重建存储 volume 或手动建库建用户。
+容器会直接连接宿主机已启动的 PostgreSQL。请先确保本机已有 `admin_console` 数据库和 `admin_console` 用户，或者把 `DATABASE_URL` 改成你自己的本地库连接串。
 
 ## PostgreSQL 表设计
 

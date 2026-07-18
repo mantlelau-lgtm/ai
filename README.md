@@ -3,10 +3,10 @@
 ## 文档索引
 
 - 仓库总入口：`README.md`
+- `agent-center`：`agent-center/README.md`
 - `admin-console`：`admin-console/README.md`
 - `llm-gateway`：`llm-gateway/README.md`
 - `message-gateway`：`message-gateway/README.md`
-- `core-service`：`core-service/README.md`
 - `infra/storage`：`infra/storage/README.md`
 - 本地部署：`deploy/local/README.md`
 - Docker 部署：`deploy/docker/README.md`
@@ -22,18 +22,16 @@
 
 ## 本地启动（推荐）
 
-1. 启动基础设施（Postgres）
+1. 确保本机已启动所需中间件
 
-```bash
-./deploy/local/storage.sh up
-```
+当前项目实际运行依赖的是本机 PostgreSQL；仓库里没有启用中的 MySQL / Redis 运行时依赖。
 
 2. 为各服务创建本地环境文件
 
 ```bash
+cp agent-center/.env.local.example agent-center/.env.local
 cp admin-console/.env.local.example admin-console/.env.local
 cp llm-gateway/.env.local.example llm-gateway/.env.local
-cp core-service/.env.local.example core-service/.env.local
 cp message-gateway/.env.local.example message-gateway/.env.local
 ```
 
@@ -47,19 +45,21 @@ cp message-gateway/.env.local.example message-gateway/.env.local
 ./deploy/local/start.sh all
 ```
 
-默认端口约定（5008x）：
+默认端口约定：
 
+- agent-center: `:9999`
 - llm-gateway: `:50080`
-- core-service: `:50081`
 - message-gateway: `:50082`
 - admin-console: `:50083`
+- robot-d: `:7004`（Docker 映射默认 `:50084`）
 
 也支持单独启动任意服务，例如：
 
 ```bash
+./deploy/local/start.sh agent-center
 ./deploy/local/start.sh admin-console
 ./deploy/local/start.sh llm-gateway
-./deploy/local/start.sh core-service message-gateway
+./deploy/local/start.sh message-gateway
 ```
 
 停止服务：
@@ -71,16 +71,30 @@ cp message-gateway/.env.local.example message-gateway/.env.local
 ## Docker 部署（本机 Docker）
 
 ```bash
-cd /Users/zxz/AI/deploy/docker
+cd /Users/rocky/CodingSpace/ai-coding/ai/deploy/docker
 cp .env.example .env
 docker compose up -d --build
 ```
 
 管理后台启动后可访问：`http://localhost:50083`
 
-`admin-console` 当前把 bot / llm / routing 配置写入本地 PostgreSQL `admin_console` 数据库。
+容器部署会启动这些业务服务：
+
+- `agent-center`
+- `llm-gateway`
+- `message-gateway`
+- `admin-console`
+- `robot-d`
+- `robot-d`
+
+这些容器会直接连接宿主机已启动的 PostgreSQL。
 
 需要在 `deploy/docker/.env` 中填写：
 
-- `DEEPSEEK_API_KEY`
+- `ADMIN_TOKEN`
+- `ADMIN_CONSOLE_ENCRYPTION_SECRET`
+- `AGENT_CENTER_DATABASE_URL`
+- `LLM_GATEWAY_DATABASE_URL`
+- `MESSAGE_GATEWAY_DATABASE_URL`
+- `ADMIN_CONSOLE_DATABASE_URL`
 - `LARK_APP_ID` / `LARK_APP_SECRET` / `LARK_VERIFICATION_TOKEN` / `LARK_ENCRYPT_KEY`

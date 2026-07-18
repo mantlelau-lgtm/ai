@@ -5,6 +5,7 @@ import type {
   LlmCredential,
   LlmModel,
   OverviewResponse,
+  RegisteredAgent,
   SaveResponse,
   ToolDescriptor,
   ValidationResponse,
@@ -39,10 +40,7 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
 export const adminApi = {
   getOverview: () => requestJson<OverviewResponse>('/api/overview'),
   getBundle: () => requestJson<BundleResponse>('/api/config/bundle'),
-  listAgents: () =>
-    requestJson<{
-      agents: { name: string; type: string; source: string; description: string; key_name: string; tools: string[] }[]
-    }>('/api/agents'),
+  listAgents: () => requestJson<{ agents: RegisteredAgent[] }>('/api/agents'),
   listTools: () => requestJson<{ tools: ToolDescriptor[] }>('/api/tools'),
   updateAgentTools: (name: string, tools: string[]) =>
     requestJson<{ agent: string; tools: string[] }>(`/api/agents/${encodeURIComponent(name)}/tools`, {
@@ -50,9 +48,7 @@ export const adminApi = {
       body: JSON.stringify({ tools }),
     }),
   updateAgentKey: (name: string, keyName: string) =>
-    requestJson<{
-      agent: { name: string; type: string; source: string; description: string; key_name: string; tools: string[] }
-    }>(`/api/agents/${encodeURIComponent(name)}/key`, {
+    requestJson<{ agent: RegisteredAgent }>(`/api/agents/${encodeURIComponent(name)}/key`, {
       method: 'PUT',
       body: JSON.stringify({ key_name: keyName }),
     }),

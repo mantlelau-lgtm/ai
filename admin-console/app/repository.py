@@ -109,8 +109,9 @@ CREATE TABLE IF NOT EXISTS admin_registered_agents (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     agent_type TEXT NOT NULL DEFAULT 'custom',
-    source TEXT NOT NULL DEFAULT 'core-service',
+    source TEXT NOT NULL DEFAULT 'local',
     description TEXT NOT NULL DEFAULT '',
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
     key_name TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -118,6 +119,11 @@ CREATE TABLE IF NOT EXISTS admin_registered_agents (
 
 ALTER TABLE admin_registered_agents
     ADD COLUMN IF NOT EXISTS key_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE admin_registered_agents
+    ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE UNIQUE INDEX IF NOT EXISTS admin_registered_agents_default_unique
+    ON admin_registered_agents((1)) WHERE is_default;
 
 CREATE TABLE IF NOT EXISTS admin_message_route_rules (
     id BIGSERIAL PRIMARY KEY,
@@ -244,6 +250,9 @@ class PostgresConfigRepository:
                 await conn.execute(
                     "ALTER TABLE admin_registered_agents DROP COLUMN IF EXISTS model_name"
                 )
+            await conn.execute(
+                "ALTER TABLE admin_registered_agents ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE"
+            )
             await self._migrate_legacy_llm(conn)
             await self._migrate_legacy_routes(conn)
             await self._migrate_legacy_agents(conn)
@@ -455,7 +464,7 @@ class PostgresConfigRepository:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT name, agent_type, source, description, COALESCE(key_name, '') AS key_name
+                SELECT name, agent_type, source, description, is_default, COALESCE(key_name, '') AS key_name
                 FROM admin_registered_agents
                 ORDER BY name
                 """
@@ -476,6 +485,7 @@ class PostgresConfigRepository:
                 type=row["agent_type"],
                 source=row["source"],
                 description=row["description"],
+                is_default=row["is_default"],
                 key_name=row["key_name"],
                 tools=list(bindings.get(row["name"], [])),
             )
@@ -491,14 +501,20 @@ class PostgresConfigRepository:
                     name = item.name.strip().lower()
                     if not name:
                         continue
+                    if item.is_default:
+                        await conn.execute(
+                            "UPDATE admin_registered_agents SET is_default = FALSE, updated_at = NOW() WHERE is_default = TRUE AND name <> $1",
+                            name,
+                        )
                     await conn.execute(
                         """
-                        INSERT INTO admin_registered_agents(name, agent_type, source, description, key_name, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, NOW())
+                        INSERT INTO admin_registered_agents(name, agent_type, source, description, is_default, key_name, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, NOW())
                         ON CONFLICT (name) DO UPDATE
                         SET agent_type = EXCLUDED.agent_type,
                             source = EXCLUDED.source,
                             description = EXCLUDED.description,
+                            is_default = EXCLUDED.is_default,
                             key_name = CASE
                                 WHEN EXCLUDED.key_name <> '' THEN EXCLUDED.key_name
                                 ELSE admin_registered_agents.key_name
@@ -507,8 +523,9 @@ class PostgresConfigRepository:
                         """,
                         name,
                         item.type.strip() or "custom",
-                        item.source.strip() or "core-service",
+                        item.source.strip() or "local",
                         item.description.strip(),
+                        item.is_default,
                         item.key_name.strip(),
                     )
                     count += 1
@@ -533,7 +550,7 @@ class PostgresConfigRepository:
                 UPDATE admin_registered_agents
                 SET key_name = $2, updated_at = NOW()
                 WHERE name = $1
-                RETURNING name, agent_type, source, description, COALESCE(key_name, '') AS key_name
+                RETURNING name, agent_type, source, description, is_default, COALESCE(key_name, '') AS key_name
                 """,
                 normalized,
                 target_key,
@@ -549,6 +566,7 @@ class PostgresConfigRepository:
             type=row["agent_type"],
             source=row["source"],
             description=row["description"],
+            is_default=row["is_default"],
             key_name=row["key_name"],
             tools=[item["tool_name"] for item in tool_rows],
         )

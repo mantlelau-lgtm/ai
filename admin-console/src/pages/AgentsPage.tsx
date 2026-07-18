@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { LayoutList, Save, Zap } from 'lucide-react'
+import { LayoutList, Save, Star, Zap } from 'lucide-react'
 
 import { AccordionCard } from '@/components/AccordionCard'
 import { SaveIconButton } from '@/components/ConfigControls'
@@ -37,7 +37,7 @@ export function AgentsPage() {
         <div className="space-y-4">
           {agents.length === 0 ? (
             <div className="rounded-[24px] border border-dashed border-white/15 bg-white/5 px-5 py-8 text-sm text-slate-300">
-              当前还没有注册 agent，请等待 core-service 启动后自动注册。
+              当前还没有注册 agent，请先接入 agent 注册来源或手动导入。
             </div>
           ) : null}
           {agents.map((agent, index) => {
@@ -48,7 +48,7 @@ export function AgentsPage() {
               <AccordionCard
                 key={agent.name}
                 title={agent.name}
-                subtitle={buildAgentSubtitle(agent.type, agent.source, agent.key_name)}
+                subtitle={buildAgentSubtitle(agent.type, agent.source, agent.key_name, agent.is_default)}
                 isOpen={openIndex === index}
                 onToggle={() => setOpenIndex((current) => (current === index ? null : index))}
                 footerActions={
@@ -71,6 +71,12 @@ export function AgentsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="text-xs leading-6 text-slate-300">{agent.description || '无描述'}</p>
                     <div className="mt-3 flex flex-wrap gap-3">
+                      {agent.is_default ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-amber-200">
+                          <Star className="h-3 w-3" />
+                          默认 Agent
+                        </span>
+                      ) : null}
                       <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
                         {agent.type}
                       </span>
@@ -115,7 +121,9 @@ export function AgentsPage() {
   )
 }
 
-function buildAgentSubtitle(type: string, source: string, keyName: string) {
-  const parts = [type, source, keyName ? `key: ${keyName}` : '未设置密钥'].filter(Boolean)
-  return parts.join(' · ')
+function buildAgentSubtitle(type: string, source: string, keyName: string, isDefault: boolean) {
+  const parts: string[] = []
+  if (isDefault) parts.push('默认')
+  parts.push(type, source, keyName ? `key: ${keyName}` : '未设置密钥')
+  return parts.filter(Boolean).join(' · ')
 }

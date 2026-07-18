@@ -10,7 +10,6 @@ from app.models import (
     AdminLlmConfig,
     AdminRoutingConfig,
     AgentSpec,
-    BotConfig,
     BotsFile,
     BundlePayload,
     DatabaseMeta,
@@ -24,7 +23,6 @@ from app.models import (
     MessageRouteRule,
     RegisteredAgent,
     RoutingConfig,
-    RoutingEntry,
     TableMeta,
 )
 
@@ -87,7 +85,7 @@ class FakeRepository:
             ),
         )
         self.agents = [
-            RegisteredAgent(name="general", type="general", source="core-service", key_name="deepseek-main")
+            RegisteredAgent(name="general", type="general", source="local", key_name="deepseek-main")
         ]
 
     async def load_bundle(self) -> BundlePayload:
@@ -318,26 +316,19 @@ class AdminApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["rules"][0]["id"], "help")
 
-        response = self.client.get("/api/runtime/core-service/routing")
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["agents"][0]["name"], "general")
-        # 关键：routing 携带 agent.key_name，core-service 据此调用 llm-gw
-        self.assertEqual(body["agents"][0]["key_name"], "deepseek-main")
-
     def test_agents_list_returns_registered(self) -> None:
         response = self.client.get("/api/agents")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["agents"][0]["name"], "general")
-        self.assertEqual(data["agents"][0]["source"], "core-service")
+        self.assertEqual(data["agents"][0]["source"], "local")
         self.assertEqual(data["agents"][0]["key_name"], "deepseek-main")
 
     def test_agents_register_upserts(self) -> None:
         payload = {
             "agents": [
-                {"name": "general", "type": "general", "source": "core-service", "description": "desc"},
-                {"name": "echo", "type": "echo", "source": "core-service", "description": "echo"},
+                {"name": "general", "type": "general", "source": "local", "description": "desc"},
+                {"name": "echo", "type": "echo", "source": "local", "description": "echo"},
             ]
         }
         response = self.client.post("/api/agents/register", json=payload)

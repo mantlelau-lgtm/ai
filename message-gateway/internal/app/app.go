@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"message-gateway/internal/config"
@@ -52,7 +54,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 
 	larkClient := mgwdispatcher.NewLarkClient(cfg)
 	coreClient := mgwdispatcher.NewCoreClient(cfg)
-	svc := handler.NewService(cfg, st, rt, larkClient, coreClient, m, logger)
+	botConfigClient := mgwdispatcher.NewBotConfigClient(cfg)
+	agentCenterClient := mgwdispatcher.NewAgentCenterClient(cfg)
+	llmSelectorClient := mgwdispatcher.NewLLMSelectorClient(cfg)
+	svc := handler.NewService(cfg, st, rt, larkClient, coreClient, botConfigClient, agentCenterClient, llmSelectorClient, m, logger)
 
 	eventDispatcher := larkdispatcher.NewEventDispatcher(cfg.LarkVerificationToken, cfg.LarkEncryptKey)
 	eventDispatcher.OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
@@ -93,33 +98,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	})
 
 	if cfg.LarkWSEnabled {
-		bots := mgwdispatcher.LoadLarkBotCredentials(cfg)
-		if len(bots) == 0 && cfg.LarkAppID != "" && cfg.LarkAppSecret != "" {
-			bots = []mgwdispatcher.LarkBotCredential{{
-				BotID:       cfg.LarkAppID,
-				AppID:       cfg.LarkAppID,
-				AppSecret:   cfg.LarkAppSecret,
-				OpenBaseURL: cfg.LarkOpenBaseURL,
-			}}
-		}
-		for _, b := range bots {
-			domain := b.OpenBaseURL
-			if domain == "" {
-				domain = cfg.LarkOpenBaseURL
-			}
-			wsClient := larkws.NewClient(
-				b.AppID,
-				b.AppSecret,
-				larkws.WithEventHandler(eventDispatcher),
-				larkws.WithDomain(domain),
-				larkws.WithLogLevel(larkcore.LogLevelInfo),
-			)
-			go func() {
-				if err := wsClient.Start(ctx); err != nil {
-					logger.Error("lark ws client start failed", "error", err)
-				}
-			}()
-		}
+		startLarkWSClients(ctx, cfg, eventDispatcher, logger)
 	}
 
 	callback := httpserverext.NewEventHandlerFunc(eventDispatcher, larkevent.WithLogLevel(larkcore.LogLevelInfo))
@@ -165,4 +144,83 @@ func (a *App) RunWorker(ctx context.Context) {
 
 func (a *App) Close() {
 	a.store.Close()
+}
+
+func startLarkWSClients(ctx context.Context, cfg config.Config, eventDispatcher *larkdispatcher.EventDispatcher, logger *slog.Logger) {
+	var mu sync.Mutex
+	started := map[string]struct{}{}
+
+	launch := func(appID string, wsClient *larkws.Client) {
+		go func() {
+			logger.Info("starting lark ws client", "app_id", appID)
+			if err := wsClient.Start(ctx); err != nil && ctx.Err() == nil {
+				logger.Error("lark ws client start failed", "app_id", appID, "error", err)
+			}
+			mu.Lock()
+			delete(started, appID)
+			mu.Unlock()
+		}()
+	}
+
+	loadAndStart := func() {
+		bots := mgwdispatcher.LoadLarkBotCredentials(cfg)
+		if len(bots) == 0 && cfg.LarkAppID != "" && cfg.LarkAppSecret != "" {
+			bots = []mgwdispatcher.LarkBotCredential{{
+				BotID:       cfg.LarkAppID,
+				AppID:       cfg.LarkAppID,
+				AppSecret:   cfg.LarkAppSecret,
+				OpenBaseURL: cfg.LarkOpenBaseURL,
+			}}
+		}
+		if len(bots) == 0 {
+			logger.Warn("no lark ws credentials available yet")
+			return
+		}
+
+		for _, b := range bots {
+			appID := strings.TrimSpace(b.AppID)
+			if appID == "" {
+				appID = strings.TrimSpace(b.BotID)
+			}
+			appSecret := strings.TrimSpace(b.AppSecret)
+			if appID == "" || appSecret == "" {
+				continue
+			}
+
+			mu.Lock()
+			if _, ok := started[appID]; ok {
+				mu.Unlock()
+				continue
+			}
+			started[appID] = struct{}{}
+			mu.Unlock()
+
+			domain := strings.TrimSpace(b.OpenBaseURL)
+			if domain == "" {
+				domain = cfg.LarkOpenBaseURL
+			}
+			wsClient := larkws.NewClient(
+				appID,
+				appSecret,
+				larkws.WithEventHandler(eventDispatcher),
+				larkws.WithDomain(domain),
+				larkws.WithLogLevel(larkcore.LogLevelInfo),
+			)
+			launch(appID, wsClient)
+		}
+	}
+
+	go func() {
+		loadAndStart()
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				loadAndStart()
+			}
+		}
+	}()
 }

@@ -85,16 +85,17 @@ class AgentSpec(BaseModel):
 class RegisteredAgent(BaseModel):
     name: str = ""
     type: str = "custom"
-    source: str = "core-service"
+    source: str = "local"
     description: str = ""
     key_name: str = ""
+    is_default: bool = False
     tools: List[str] = Field(default_factory=list)
 
 
 class ToolDescriptor(BaseModel):
     model_config = {"populate_by_name": True}
 
-    service: str = "core-service"
+    service: str = "agent-runtime"
     source: str = ""
     name: str = ""
     description: str = ""
@@ -103,7 +104,7 @@ class ToolDescriptor(BaseModel):
 
 
 class ToolRegistryReport(BaseModel):
-    service: str = "core-service"
+    service: str = "agent-runtime"
     instance_id: str = ""
     tools: List[ToolDescriptor] = Field(default_factory=list)
     reported_at: str = ""

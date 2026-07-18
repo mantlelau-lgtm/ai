@@ -1,5 +1,9 @@
 # 共享存储中间件（基础设施栈）
 
+当前仓库默认不再依赖这里的 Docker 中间件栈。业务服务现在默认直接连接宿主机已启动的 PostgreSQL。
+
+这个目录保留为可选的历史基础设施方案，供需要临时自带存储容器时使用。
+
 该目录提供一个可复用的 Docker 存储栈，供消息网关、内容系统等多个内部服务共用。
 
 ## 组成
@@ -41,7 +45,7 @@ docker compose --profile redis --profile minio up -d
 
 首次启动（空数据卷）时会自动执行 [postgres-init/01-init.sql](./postgres-init/01-init.sql)：
 
-- 创建 `message_gateway`、`content_system` 两个数据库
+- 创建 `message_gateway`、`llm_gateway`、`agent_center`、`admin_console`、`content_system` 数据库
 - 为每个系统创建独立账号并授权（默认账号/密码见 SQL 文件）
 
 ## 业务服务接入示例

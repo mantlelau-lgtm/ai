@@ -7,7 +7,6 @@ import { BotsPage } from '@/pages/BotsPage'
 import { LlmKeysPage } from '@/pages/LlmKeysPage'
 import { LlmModelsPage } from '@/pages/LlmModelsPage'
 import { OverviewPage } from '@/pages/OverviewPage'
-import { SiriusPage } from '@/pages/SiriusPage'
 import { useAdminStore } from '@/store/useAdminStore'
 
 export default function App() {
@@ -27,7 +26,6 @@ export default function App() {
           <Route path="/llm/models" element={<LlmModelsPage />} />
           <Route path="/llm/keys" element={<LlmKeysPage />} />
           <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/sirius" element={<SiriusPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

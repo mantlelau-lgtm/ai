@@ -1,6 +1,8 @@
 go 1.23.0
 
 use (
+        ./agent-center
 	./llm-gateway
 	./message-gateway
+	./robot-d
 )
